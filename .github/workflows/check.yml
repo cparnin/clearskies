@@ -1,0 +1,25 @@
+name: Clear Skies Check
+
+on:
+  schedule:
+    # 4pm EST (21:00 UTC winter, adjust if needed)
+    - cron: '0 21 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check conditions and notify
+        run: python main.py
