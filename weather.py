@@ -3,10 +3,7 @@
 import requests
 from datetime import datetime, timezone
 import ephem
-
-# Zephyrhills, FL coordinates
-LAT = 28.23
-LON = -82.18
+from config import LATITUDE, LONGITUDE, TIMEZONE
 
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -14,8 +11,8 @@ OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 def get_viewing_hour() -> int:
     """Get the hour (0-23) for tonight's viewing time (2hrs after sunset)."""
     obs = ephem.Observer()
-    obs.lat = str(LAT)
-    obs.lon = str(LON)
+    obs.lat = str(LATITUDE)
+    obs.lon = str(LONGITUDE)
     obs.date = datetime.now(timezone.utc)
 
     sun = ephem.Sun()
@@ -32,12 +29,12 @@ def get_weather() -> dict | None:
         or None if request fails
     """
     params = {
-        "latitude": LAT,
-        "longitude": LON,
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
         "hourly": "cloud_cover,relative_humidity_2m,visibility,wind_speed_10m,temperature_2m",
         "temperature_unit": "fahrenheit",
         "wind_speed_unit": "mph",
-        "timezone": "America/New_York",
+        "timezone": TIMEZONE,
         "forecast_days": 2,
     }
 

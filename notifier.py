@@ -1,8 +1,8 @@
 """ntfy.sh push notification integration."""
 
 import requests
+from config import NTFY_TOPIC
 
-NTFY_TOPIC = "clearskies-chadp"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 

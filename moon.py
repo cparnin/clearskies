@@ -2,17 +2,14 @@
 
 import ephem
 from datetime import datetime, timezone
-
-# Zephyrhills, FL
-LAT = "28.23"
-LON = "-82.18"
+from config import LATITUDE, LONGITUDE
 
 
 def get_observer_tonight() -> ephem.Observer:
     """Create an observer for tonight's prime viewing time (2 hrs after sunset)."""
     obs = ephem.Observer()
-    obs.lat = LAT
-    obs.lon = LON
+    obs.lat = str(LATITUDE)
+    obs.lon = str(LONGITUDE)
     obs.date = datetime.now(timezone.utc)
 
     # Get next sunset
@@ -74,8 +71,8 @@ def get_moon_info() -> dict:
     # Calculate viewing window
     sun = ephem.Sun()
     obs_now = ephem.Observer()
-    obs_now.lat = LAT
-    obs_now.lon = LON
+    obs_now.lat = str(LATITUDE)
+    obs_now.lon = str(LONGITUDE)
     obs_now.date = datetime.now(timezone.utc)
 
     sunset = obs_now.next_setting(sun)

@@ -4,6 +4,7 @@ from weather import get_weather
 from moon import get_moon_info
 from targets import get_recommendations
 from notifier import send_notification
+from config import MIN_TARGET_SCORE, MIN_CONDITIONS_SCORE, TOP_TARGETS_COUNT
 
 
 def assess_conditions(weather: dict, moon: dict) -> tuple[int, str]:
@@ -89,11 +90,11 @@ def run():
     # Assess conditions
     conditions_score, conditions_summary = assess_conditions(weather, moon)
 
-    # Get top targets (6+ score, max 5)
-    good_targets = [t for t in targets if t["score"] >= 6][:5]
+    # Get top targets
+    good_targets = [t for t in targets if t["score"] >= MIN_TARGET_SCORE][:TOP_TARGETS_COUNT]
 
     # Decide whether to notify
-    if conditions_score < 5:
+    if conditions_score < MIN_CONDITIONS_SCORE:
         print(f"Conditions poor ({conditions_score}/10): {conditions_summary}")
         print("No notification sent.")
         return

@@ -3,10 +3,7 @@
 import ephem
 import math
 from datetime import datetime, timezone
-
-# Zephyrhills, FL
-LAT = "28.23"
-LON = "-82.18"
+from config import LATITUDE, LONGITUDE
 
 # DWARF3-optimized catalog (150mm f/6.3, ~2.4° x 1.8° FOV)
 # Best for: large nebulae, big galaxies, open clusters
@@ -49,8 +46,8 @@ DSO_CATALOG = [
 def get_observer_tonight() -> ephem.Observer:
     """Create an observer for tonight's prime viewing time (2 hrs after sunset)."""
     obs = ephem.Observer()
-    obs.lat = LAT
-    obs.lon = LON
+    obs.lat = str(LATITUDE)
+    obs.lon = str(LONGITUDE)
     obs.date = datetime.now(timezone.utc)
 
     # Get next sunset
@@ -58,7 +55,6 @@ def get_observer_tonight() -> ephem.Observer:
     try:
         next_sunset = obs.next_setting(sun)
     except ephem.AlwaysUpError:
-        # Sun doesn't set (shouldn't happen in Florida)
         next_sunset = obs.date
 
     # Set time to 2 hours after sunset (astronomical darkness)
