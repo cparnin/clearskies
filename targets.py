@@ -15,40 +15,106 @@ def ephem_to_local(ephem_date) -> datetime:
     return utc_dt.astimezone(LOCAL_TZ)
 
 # DWARF3-optimized catalog (150mm f/6.3, ~2.4° x 1.8° FOV)
-# Best for: large nebulae, big galaxies, open clusters
+# Organized by season (when best visible in evening)
+# Scoring handles visibility - add lots, let the algorithm pick what's best tonight
 # RA in hours:minutes, Dec in degrees:minutes
 DSO_CATALOG = [
-    # Large Nebulae (excellent for DWARF3)
+    # === WINTER (Dec-Feb evening) ===
+    # Orion region
     ("M42 - Orion Nebula", "5:35:16", "-5:23:28", "nebula", "easy"),
+    ("M43 - De Mairan's Nebula", "5:35:31", "-5:16:03", "nebula", "easy"),
+    ("IC 434 - Horsehead Region", "5:40:59", "-2:27:30", "nebula", "hard"),
+    ("Flame Nebula", "5:41:54", "-1:51:12", "nebula", "medium"),
+    ("M78 - Reflection Nebula", "5:46:46", "0:03:50", "nebula", "medium"),
+    ("Barnard's Loop", "5:27:00", "-3:58:00", "nebula", "hard"),
+    # Auriga/Gemini
+    ("IC 405 - Flaming Star", "5:16:00", "34:21:00", "nebula", "medium"),
+    ("IC 410 - Tadpole Nebula", "5:22:00", "33:24:00", "nebula", "medium"),
+    ("IC 417 - Spider Nebula", "5:28:00", "34:25:00", "nebula", "medium"),
+    ("M35 - Gemini Cluster", "6:09:00", "24:21:00", "cluster", "easy"),
+    ("M36 - Pinwheel Cluster", "5:36:12", "34:08:24", "cluster", "easy"),
+    ("M37 - Salt & Pepper", "5:52:18", "32:33:12", "cluster", "easy"),
+    ("M38 - Starfish Cluster", "5:28:42", "35:51:18", "cluster", "easy"),
+    # Monoceros/Canis Major
+    ("Rosette Nebula", "6:33:45", "4:59:54", "nebula", "medium"),
+    ("Cone Nebula Region", "6:41:00", "9:53:00", "nebula", "hard"),
+    ("Seagull Nebula", "7:04:00", "-10:27:00", "nebula", "medium"),
+    ("Thor's Helmet", "7:18:30", "-13:13:00", "nebula", "hard"),
+    ("M46 + M47", "7:41:46", "-14:48:36", "cluster", "easy"),
+    ("M41 - Little Beehive", "6:46:00", "-20:46:00", "cluster", "easy"),
+    # Taurus/Perseus
+    ("M45 - Pleiades", "3:47:00", "24:07:00", "cluster", "easy"),
+    ("Hyades", "4:27:00", "15:52:00", "cluster", "easy"),
+    ("California Nebula", "4:03:18", "36:25:18", "nebula", "hard"),
+    ("Double Cluster", "2:20:00", "57:08:00", "cluster", "easy"),
+    ("M1 - Crab Nebula", "5:34:32", "22:00:52", "nebula", "medium"),
+
+    # === SPRING (Mar-May evening) ===
+    # Galaxy season - larger ones for DWARF3
+    ("M81/M82 - Bode's Pair", "9:55:33", "69:03:55", "galaxy", "medium"),
+    ("M51 - Whirlpool Galaxy", "13:29:52", "47:11:43", "galaxy", "medium"),
+    ("M101 - Pinwheel Galaxy", "14:03:12", "54:20:57", "galaxy", "hard"),
+    ("M63 - Sunflower Galaxy", "13:15:49", "42:01:45", "galaxy", "medium"),
+    ("M106", "12:18:57", "47:18:14", "galaxy", "medium"),
+    ("M94 - Cat's Eye Galaxy", "12:50:53", "41:07:14", "galaxy", "medium"),
+    ("M64 - Black Eye Galaxy", "12:56:44", "21:40:58", "galaxy", "medium"),
+    ("M104 - Sombrero Galaxy", "12:39:59", "-11:37:23", "galaxy", "medium"),
+    ("M65/M66 - Leo Triplet", "11:18:56", "13:05:32", "galaxy", "medium"),
+    ("NGC 2903", "9:32:10", "21:30:03", "galaxy", "medium"),
+    # Spring clusters/nebulae
+    ("M44 - Beehive Cluster", "8:40:24", "19:40:00", "cluster", "easy"),
+    ("M67 - Old Open Cluster", "8:51:18", "11:48:00", "cluster", "easy"),
+    ("M3 - Globular", "13:42:11", "28:22:32", "cluster", "medium"),
+
+    # === SUMMER (Jun-Aug evening) ===
+    # Sagittarius/Scorpius (Milky Way core)
     ("M8 - Lagoon Nebula", "18:03:37", "-24:23:12", "nebula", "easy"),
     ("M20 - Trifid Nebula", "18:02:23", "-23:01:48", "nebula", "medium"),
     ("M17 - Omega Nebula", "18:20:26", "-16:10:36", "nebula", "easy"),
-    ("M27 - Dumbbell Nebula", "19:59:36", "22:43:16", "nebula", "easy"),
+    ("M16 - Eagle Nebula", "18:18:48", "-13:47:00", "nebula", "medium"),
+    ("M24 - Sagittarius Star Cloud", "18:16:54", "-18:33:00", "cluster", "easy"),
+    ("Rho Ophiuchi Cloud", "16:25:35", "-23:26:50", "nebula", "hard"),
+    ("Cat's Paw Nebula", "17:19:58", "-35:57:47", "nebula", "medium"),
+    ("Pipe Nebula", "17:33:00", "-26:32:00", "nebula", "hard"),
+    ("M6 - Butterfly Cluster", "17:40:00", "-32:15:00", "cluster", "easy"),
+    ("M7 - Ptolemy Cluster", "17:53:51", "-34:47:34", "cluster", "easy"),
+    ("M22 - Sagittarius Cluster", "18:36:24", "-23:54:17", "cluster", "easy"),
+    # Cygnus/Lyra
     ("NGC 7000 - North America", "20:58:47", "44:19:48", "nebula", "medium"),
     ("IC 5070 - Pelican Nebula", "20:50:48", "44:21:00", "nebula", "medium"),
-    ("M16 - Eagle Nebula", "18:18:48", "-13:47:00", "nebula", "medium"),
-    ("IC 1396 - Elephant Trunk", "21:39:06", "57:29:24", "nebula", "medium"),
-    ("Rosette Nebula", "6:33:45", "4:59:54", "nebula", "medium"),
-    ("M43 - De Mairan's Nebula", "5:35:31", "-5:16:03", "nebula", "easy"),
-    ("IC 434 - Horsehead Region", "5:40:59", "-2:27:30", "nebula", "hard"),
-    ("California Nebula", "4:03:18", "36:25:18", "nebula", "hard"),
-    ("Soul Nebula", "2:51:30", "60:26:00", "nebula", "medium"),
-    ("Heart Nebula", "2:32:42", "61:27:00", "nebula", "medium"),
+    ("Veil Nebula - East", "20:56:24", "31:42:30", "nebula", "medium"),
+    ("Veil Nebula - West", "20:45:38", "30:42:30", "nebula", "medium"),
+    ("Crescent Nebula", "20:12:06", "38:21:18", "nebula", "hard"),
+    ("Sadr Region", "20:22:00", "40:15:00", "nebula", "medium"),
+    ("M27 - Dumbbell Nebula", "19:59:36", "22:43:16", "nebula", "easy"),
+    ("M57 - Ring Nebula", "18:53:35", "33:01:45", "nebula", "medium"),
+    ("IC 1318 - Butterfly Nebula", "20:17:00", "41:41:00", "nebula", "medium"),
+    # Serpens/Scutum
+    ("Sh2-86 - Vulpecula OB", "19:40:00", "24:30:00", "nebula", "hard"),
+    ("M11 - Wild Duck Cluster", "18:51:06", "-6:16:00", "cluster", "easy"),
 
-    # Large Galaxies (good for DWARF3 wide field)
+    # === FALL (Sep-Nov evening) ===
+    # Cassiopeia/Cepheus
+    ("Heart Nebula", "2:32:42", "61:27:00", "nebula", "medium"),
+    ("Soul Nebula", "2:51:30", "60:26:00", "nebula", "medium"),
+    ("IC 1396 - Elephant Trunk", "21:39:06", "57:29:24", "nebula", "medium"),
+    ("Bubble Nebula Region", "23:20:45", "61:12:42", "nebula", "hard"),
+    ("Cave Nebula", "22:56:49", "62:27:08", "nebula", "hard"),
+    ("Pacman Nebula", "1:29:00", "58:45:00", "nebula", "medium"),
+    ("NGC 7789 - Caroline's Rose", "23:57:24", "56:42:30", "cluster", "medium"),
+    ("M52 - Scorpion Cluster", "23:24:48", "61:35:36", "cluster", "easy"),
+    # Andromeda/Triangulum
     ("M31 - Andromeda Galaxy", "0:42:44", "41:16:09", "galaxy", "easy"),
     ("M33 - Triangulum Galaxy", "1:33:51", "30:39:37", "galaxy", "medium"),
-    ("M81/M82 - Bode's Pair", "9:55:33", "69:03:55", "galaxy", "medium"),
+    # Aquarius/Pegasus
     ("NGC 253 - Sculptor Galaxy", "0:47:33", "-25:17:18", "galaxy", "medium"),
-    ("Large Magellanic Cloud", "5:23:34", "-69:45:22", "galaxy", "easy"),
+    ("Helix Nebula", "22:29:38", "-20:50:14", "nebula", "medium"),
+    ("NGC 7331 + Stephan's Quintet", "22:37:04", "34:24:56", "galaxy", "hard"),
 
-    # Open Clusters (perfect for wide field)
-    ("M45 - Pleiades", "3:47:00", "24:07:00", "cluster", "easy"),
-    ("M44 - Beehive Cluster", "8:40:24", "19:40:00", "cluster", "easy"),
-    ("Double Cluster", "2:20:00", "57:08:00", "cluster", "easy"),
-    ("M35 - Gemini Cluster", "6:09:00", "24:21:00", "cluster", "easy"),
-    ("M46 + M47", "7:41:46", "-14:48:36", "cluster", "easy"),
-    ("Hyades", "4:27:00", "15:52:00", "cluster", "easy"),
+    # === YEAR-ROUND (circumpolar or always visible) ===
+    ("M13 - Hercules Cluster", "16:41:41", "36:27:37", "cluster", "easy"),
+    ("M92 - Hercules Globular", "17:17:07", "43:08:11", "cluster", "medium"),
+    ("M5 - Rose Globular", "15:18:33", "2:04:58", "cluster", "medium"),
 ]
 
 

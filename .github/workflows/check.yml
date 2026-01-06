@@ -22,4 +22,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Check conditions and notify
+        env:
+          LATITUDE: ${{ secrets.LATITUDE }}
+          LONGITUDE: ${{ secrets.LONGITUDE }}
         run: python main.py
