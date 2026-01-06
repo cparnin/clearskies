@@ -1,11 +1,19 @@
 """Weather data from Open-Meteo API."""
 
 import requests
+import pytz
 from datetime import datetime, timezone
 import ephem
 from config import LATITUDE, LONGITUDE, TIMEZONE
 
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
+LOCAL_TZ = pytz.timezone(TIMEZONE)
+
+
+def ephem_to_local(ephem_date) -> datetime:
+    """Convert ephem date to local timezone datetime."""
+    utc_dt = ephem.Date(ephem_date).datetime().replace(tzinfo=pytz.UTC)
+    return utc_dt.astimezone(LOCAL_TZ)
 
 
 def get_viewing_hour() -> int:
@@ -17,7 +25,7 @@ def get_viewing_hour() -> int:
 
     sun = ephem.Sun()
     sunset = obs.next_setting(sun)
-    viewing_time = ephem.localtime(ephem.Date(sunset + 2 * ephem.hour))
+    viewing_time = ephem_to_local(ephem.Date(sunset + 2 * ephem.hour))
     return viewing_time.hour
 
 
@@ -46,9 +54,9 @@ def get_weather() -> dict | None:
         hourly = data["hourly"]
         times = hourly["time"]
 
-        # Find tonight's viewing hour
+        # Find tonight's viewing hour (in local timezone)
         viewing_hour = get_viewing_hour()
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
         target_time = f"{today}T{viewing_hour:02d}:00"
 
         # Find index for target time
