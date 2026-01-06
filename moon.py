@@ -1,8 +1,17 @@
 """Moon phase and position calculations."""
 
 import ephem
+import pytz
 from datetime import datetime, timezone
-from config import LATITUDE, LONGITUDE
+from config import LATITUDE, LONGITUDE, TIMEZONE
+
+LOCAL_TZ = pytz.timezone(TIMEZONE)
+
+
+def ephem_to_local(ephem_date) -> datetime:
+    """Convert ephem date to local timezone datetime."""
+    utc_dt = ephem.Date(ephem_date).datetime().replace(tzinfo=pytz.UTC)
+    return utc_dt.astimezone(LOCAL_TZ)
 
 
 def get_observer_tonight() -> ephem.Observer:
@@ -43,14 +52,14 @@ def get_moon_info() -> dict:
     moon_rise_time = None
     try:
         moon_rise_time = obs.next_rising(moon)
-        rising = ephem.localtime(moon_rise_time).strftime("%-I:%M %p")
+        rising = ephem_to_local(moon_rise_time).strftime("%-I:%M %p")
     except ephem.AlwaysUpError:
         rising = "Always up"
     except ephem.NeverUpError:
         rising = "Never rises"
 
     try:
-        setting = ephem.localtime(obs.next_setting(moon)).strftime("%-I:%M %p")
+        setting = ephem_to_local(obs.next_setting(moon)).strftime("%-I:%M %p")
     except ephem.AlwaysUpError:
         setting = "Always up"
     except ephem.NeverUpError:
@@ -78,14 +87,14 @@ def get_moon_info() -> dict:
     sunset = obs_now.next_setting(sun)
     sunrise = obs_now.next_rising(sun)
 
-    window_start = ephem.localtime(ephem.Date(sunset + 2 * ephem.hour)).strftime("%-I:%M %p")
+    window_start = ephem_to_local(ephem.Date(sunset + 2 * ephem.hour)).strftime("%-I:%M %p")
 
     # Window ends at moon rise (if bright moon) or sunrise - 1hr
     if phase_pct > 50 and moon_rise_time and moon_rise_time < sunrise:
-        window_end = ephem.localtime(moon_rise_time).strftime("%-I:%M %p")
+        window_end = ephem_to_local(moon_rise_time).strftime("%-I:%M %p")
         window_note = "moon rise"
     else:
-        window_end = ephem.localtime(ephem.Date(sunrise - 1 * ephem.hour)).strftime("%-I:%M %p")
+        window_end = ephem_to_local(ephem.Date(sunrise - 1 * ephem.hour)).strftime("%-I:%M %p")
         window_note = "dawn"
 
     return {
@@ -103,7 +112,7 @@ def get_moon_info() -> dict:
 
 if __name__ == "__main__":
     obs = get_observer_tonight()
-    viewing_time = ephem.localtime(obs.date).strftime("%-I:%M %p")
+    viewing_time = ephem_to_local(obs.date).strftime("%-I:%M %p")
     print(f"Moon info for tonight ({viewing_time}):\n")
 
     info = get_moon_info()

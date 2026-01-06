@@ -2,8 +2,17 @@
 
 import ephem
 import math
+import pytz
 from datetime import datetime, timezone
-from config import LATITUDE, LONGITUDE
+from config import LATITUDE, LONGITUDE, TIMEZONE
+
+LOCAL_TZ = pytz.timezone(TIMEZONE)
+
+
+def ephem_to_local(ephem_date) -> datetime:
+    """Convert ephem date to local timezone datetime."""
+    utc_dt = ephem.Date(ephem_date).datetime().replace(tzinfo=pytz.UTC)
+    return utc_dt.astimezone(LOCAL_TZ)
 
 # DWARF3-optimized catalog (150mm f/6.3, ~2.4° x 1.8° FOV)
 # Best for: large nebulae, big galaxies, open clusters
@@ -207,7 +216,7 @@ def get_recommendations() -> list:
 
 if __name__ == "__main__":
     obs = get_observer_tonight()
-    viewing_time = ephem.localtime(obs.date).strftime("%-I:%M %p")
+    viewing_time = ephem_to_local(obs.date).strftime("%-I:%M %p")
     print(f"=== Tonight's Top Targets (calculated for {viewing_time}) ===\n")
 
     targets = get_recommendations()
