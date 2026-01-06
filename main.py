@@ -113,7 +113,7 @@ def run():
     lines.append("")
     lines.append("Top targets:")
     for i, t in enumerate(good_targets, 1):
-        lines.append(f"{i}. {t['name']} [{t['score']}/10] peak {t['transit_time']}")
+        lines.append(f"{i}. {t['name']} [{t['score']}/10] peak @ {t['transit_time']}")
 
     message = "\n".join(lines)
     priority = get_priority(conditions_score, best["score"])
