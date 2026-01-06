@@ -167,6 +167,13 @@ def get_target_info(obs: ephem.Observer, name: str, ra: str, dec: str,
     target_dec = float(target.dec) * 180 / math.pi
     moon_sep = angular_separation(target_ra, target_dec, moon_ra, moon_dec)
 
+    # Calculate transit time (when target is highest)
+    try:
+        transit = obs.next_transit(target)
+        transit_time = ephem_to_local(transit).strftime("%-I:%M %p")
+    except (ephem.AlwaysUpError, ephem.NeverUpError):
+        transit_time = "N/A"
+
     return {
         "name": name,
         "type": obj_type,
@@ -175,6 +182,7 @@ def get_target_info(obs: ephem.Observer, name: str, ra: str, dec: str,
         "azimuth": round(azimuth, 1),
         "moon_separation": round(moon_sep, 1),
         "visible": altitude > 15,  # Above 15° for decent viewing
+        "transit_time": transit_time,
     }
 
 
