@@ -40,7 +40,7 @@ NTFY_TOPIC = "your-topic-name"
 
 ## Automated runs (GitHub Actions)
 
-Push to GitHub and the workflow runs daily at 4pm EST. Manual trigger available in Actions tab.
+Push to GitHub and the workflow runs daily at 4pm EST / 5pm EDT (21:00 UTC). Manual trigger available in Actions tab.
 
 ## Target catalog
 
