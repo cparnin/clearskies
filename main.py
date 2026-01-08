@@ -18,13 +18,13 @@ def assess_conditions(weather: dict, moon: dict) -> tuple[int, str]:
 
     # Cloud cover (biggest factor)
     clouds = weather["cloud_cover"]
-    if clouds > 80:
+    if clouds > 90:
         score -= 5
         issues.append(f"Cloudy ({clouds}%)")
-    elif clouds > 50:
+    elif clouds > 70:
         score -= 3
         issues.append(f"Partly cloudy ({clouds}%)")
-    elif clouds > 25:
+    elif clouds > 40:
         score -= 1
         issues.append(f"Some clouds ({clouds}%)")
 
