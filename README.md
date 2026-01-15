@@ -21,7 +21,7 @@ Push notifications when conditions are good for astrophotography.
 
 2. Edit `config.py` with your ntfy topic
 
-3. Install [ntfy app](https://ntfy.sh) on your phone and subscribe to your topic
+3. Install [ntfy app](https://ntfy.sh) on your phone and subscribe to your topic: clearskies-chadp
 
 4. Test:
    ```bash
