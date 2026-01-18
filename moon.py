@@ -2,8 +2,8 @@
 
 import ephem
 import pytz
-from datetime import datetime, timezone
-from config import LATITUDE, LONGITUDE, TIMEZONE
+from datetime import datetime, timezone, time
+from config import LATITUDE, LONGITUDE, TIMEZONE, MAX_OBSERVING_HOUR
 
 LOCAL_TZ = pytz.timezone(TIMEZONE)
 
@@ -89,13 +89,24 @@ def get_moon_info() -> dict:
 
     window_start = ephem_to_local(ephem.Date(sunset + 2 * ephem.hour)).strftime("%-I:%M %p")
 
-    # Window ends at moon rise (if bright moon) or sunrise - 1hr
+    # Calculate max observing time (11 PM in local time)
+    window_start_dt = ephem_to_local(ephem.Date(sunset + 2 * ephem.hour))
+    max_obs_time = window_start_dt.replace(hour=MAX_OBSERVING_HOUR, minute=0, second=0, microsecond=0)
+    # If 11 PM already passed (e.g., sunset is very late), use tomorrow's 11 PM
+    if max_obs_time < window_start_dt:
+        max_obs_time = max_obs_time.replace(day=max_obs_time.day + 1)
+    max_obs_ephem = ephem.Date(max_obs_time.astimezone(pytz.UTC))
+
+    # Window ends at earliest of: 11 PM, moon rise (if bright moon), or sunrise - 1hr
+    end_times = []
     if phase_pct > 50 and moon_rise_time and moon_rise_time < sunrise:
-        window_end = ephem_to_local(moon_rise_time).strftime("%-I:%M %p")
-        window_note = "moon rise"
-    else:
-        window_end = ephem_to_local(ephem.Date(sunrise - 1 * ephem.hour)).strftime("%-I:%M %p")
-        window_note = "dawn"
+        end_times.append((moon_rise_time, "moon rise"))
+    end_times.append((ephem.Date(sunrise - 1 * ephem.hour), "dawn"))
+    end_times.append((max_obs_ephem, "11 PM"))
+
+    # Pick the earliest end time
+    earliest_end, window_note = min(end_times, key=lambda x: x[0])
+    window_end = ephem_to_local(earliest_end).strftime("%-I:%M %p")
 
     return {
         "phase_pct": round(phase_pct, 1),
