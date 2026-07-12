@@ -1,30 +1,22 @@
-"""Deep sky object and planet target recommendations."""
+"""Deep sky object target recommendations, scored for tonight's window."""
 
 import ephem
-import math
-import pytz
-from datetime import datetime, timezone
+
+from astro import fmt_time, get_night, make_observer, to_deg
 from config import (
-    LATITUDE, LONGITUDE, TIMEZONE, MAX_OBSERVING_HOUR,
-    DWARF3_OPTIMAL_TARGET_MIN, DWARF3_OPTIMAL_TARGET_MAX
+    DWARF3_OPTIMAL_TARGET_MAX, DWARF3_OPTIMAL_TARGET_MIN,
+    LATE_PENALTY_PER_HOUR, MIN_TARGET_SCORE, TYPE_WEIGHTS,
 )
 
-LOCAL_TZ = pytz.timezone(TIMEZONE)
+PRIME_BONUS = 0.5  # points available for peaking before the prime cutoff
 
-
-def ephem_to_local(ephem_date) -> datetime:
-    """Convert ephem date to local timezone datetime."""
-    utc_dt = ephem.Date(ephem_date).datetime().replace(tzinfo=pytz.UTC)
-    return utc_dt.astimezone(LOCAL_TZ)
-
-# DWARF3-optimized catalog (150mm f/6.3, ~2.4° x 1.8° FOV)
+# DWARF3-optimized catalog (telephoto ~3° x 1.65° FOV)
 # Organized by season (when best visible in evening)
 # Scoring handles visibility - add lots, let the algorithm pick what's best tonight
-# RA in hours:minutes, Dec in degrees:minutes
+# Format: (name, RA, Dec, type, difficulty, size_degrees)
+# RA in hours:minutes:seconds, Dec in degrees:minutes, size in degrees
 DSO_CATALOG = [
     # === WINTER (Dec-Feb evening) ===
-    # Format: (name, RA, Dec, type, difficulty, size_degrees)
-    # Size is optional - targets without size data won't get FOV bonus
     # Orion region
     ("M42 - Orion Nebula", "5:35:16", "-5:23:28", "nebula", "easy", 1.0),
     ("M43 - De Mairan's Nebula", "5:35:31", "-5:16:03", "nebula", "easy", 0.3),
@@ -32,10 +24,13 @@ DSO_CATALOG = [
     ("Flame Nebula", "5:41:54", "-1:51:12", "nebula", "medium", 0.5),
     ("M78 - Reflection Nebula", "5:46:46", "0:03:50", "nebula", "medium", 0.3),
     ("Barnard's Loop", "5:27:00", "-3:58:00", "nebula", "hard", 10.0),  # Huge, needs wide field
+    ("Witch Head Nebula", "5:02:00", "-7:54:00", "nebula", "hard", 1.5),
     # Auriga/Gemini
     ("IC 405 - Flaming Star", "5:16:00", "34:21:00", "nebula", "medium", 0.5),
     ("IC 410 - Tadpole Nebula", "5:22:00", "33:24:00", "nebula", "medium", 0.5),
     ("IC 417 - Spider Nebula", "5:28:00", "34:25:00", "nebula", "medium", 0.4),
+    ("IC 443 - Jellyfish Nebula", "6:17:13", "22:31:05", "nebula", "hard", 0.8),
+    ("NGC 2174 - Monkey Head", "6:09:24", "20:29:34", "nebula", "medium", 0.7),
     ("M35 - Gemini Cluster", "6:09:00", "24:21:00", "cluster", "easy", 0.5),
     ("M36 - Pinwheel Cluster", "5:36:12", "34:08:24", "cluster", "easy", 0.2),
     ("M37 - Salt & Pepper", "5:52:18", "32:33:12", "cluster", "easy", 0.4),
@@ -53,370 +48,246 @@ DSO_CATALOG = [
     ("California Nebula", "4:03:18", "36:25:18", "nebula", "hard", 2.5),
     ("Double Cluster", "2:20:00", "57:08:00", "cluster", "easy", 1.0),
     ("M1 - Crab Nebula", "5:34:32", "22:00:52", "nebula", "medium", 0.2),
+    # Winter galaxies
+    ("NGC 2403", "7:36:51", "65:36:09", "galaxy", "medium", 0.4),
 
     # === SPRING (Mar-May evening) ===
-    # Galaxy season - larger ones for DWARF3
-    ("M81/M82 - Bode's Pair", "9:55:33", "69:03:55", "galaxy", "medium"),
-    ("M51 - Whirlpool Galaxy", "13:29:52", "47:11:43", "galaxy", "medium"),
-    ("M101 - Pinwheel Galaxy", "14:03:12", "54:20:57", "galaxy", "hard"),
-    ("M63 - Sunflower Galaxy", "13:15:49", "42:01:45", "galaxy", "medium"),
-    ("M106", "12:18:57", "47:18:14", "galaxy", "medium"),
-    ("M94 - Cat's Eye Galaxy", "12:50:53", "41:07:14", "galaxy", "medium"),
-    ("M64 - Black Eye Galaxy", "12:56:44", "21:40:58", "galaxy", "medium"),
-    ("M104 - Sombrero Galaxy", "12:39:59", "-11:37:23", "galaxy", "medium"),
-    ("M65/M66 - Leo Triplet", "11:18:56", "13:05:32", "galaxy", "medium"),
-    ("NGC 2903", "9:32:10", "21:30:03", "galaxy", "medium"),
-    # Spring clusters/nebulae
-    ("M44 - Beehive Cluster", "8:40:24", "19:40:00", "cluster", "easy"),
-    ("M67 - Old Open Cluster", "8:51:18", "11:48:00", "cluster", "easy"),
-    ("M3 - Globular", "13:42:11", "28:22:32", "cluster", "medium"),
+    # Galaxy season!
+    ("M81/M82 - Bode's Pair", "9:55:33", "69:03:55", "galaxy", "medium", 0.6),
+    ("M51 - Whirlpool Galaxy", "13:29:52", "47:11:43", "galaxy", "medium", 0.2),
+    ("M101 - Pinwheel Galaxy", "14:03:12", "54:20:57", "galaxy", "hard", 0.4),
+    ("M63 - Sunflower Galaxy", "13:15:49", "42:01:45", "galaxy", "medium", 0.2),
+    ("M106", "12:18:57", "47:18:14", "galaxy", "medium", 0.3),
+    ("M94 - Cat's Eye Galaxy", "12:50:53", "41:07:14", "galaxy", "medium", 0.2),
+    ("M64 - Black Eye Galaxy", "12:56:44", "21:40:58", "galaxy", "medium", 0.2),
+    ("M104 - Sombrero Galaxy", "12:39:59", "-11:37:23", "galaxy", "medium", 0.15),
+    ("M65/M66 - Leo Triplet", "11:18:56", "13:05:32", "galaxy", "medium", 0.7),
+    ("NGC 2903", "9:32:10", "21:30:03", "galaxy", "medium", 0.2),
+    ("NGC 4565 - Needle Galaxy", "12:36:21", "25:59:16", "galaxy", "medium", 0.3),
+    ("NGC 4631 - Whale Galaxy", "12:42:08", "32:32:29", "galaxy", "medium", 0.3),
+    ("M83 - Southern Pinwheel", "13:37:01", "-29:51:57", "galaxy", "medium", 0.2),
+    ("Markarian's Chain", "12:27:00", "13:10:00", "galaxy", "medium", 1.5),
+    ("NGC 5128 - Centaurus A", "13:25:28", "-43:01:09", "galaxy", "hard", 0.4),  # Low from FL but iconic
+    # Spring clusters
+    ("M44 - Beehive Cluster", "8:40:24", "19:40:00", "cluster", "easy", 1.5),
+    ("M67 - Old Open Cluster", "8:51:18", "11:48:00", "cluster", "easy", 0.5),
+    ("M3 - Globular", "13:42:11", "28:22:32", "cluster", "medium", 0.3),
 
     # === SUMMER (Jun-Aug evening) ===
     # Sagittarius/Scorpius (Milky Way core)
-    ("M8 - Lagoon Nebula", "18:03:37", "-24:23:12", "nebula", "easy"),
-    ("M20 - Trifid Nebula", "18:02:23", "-23:01:48", "nebula", "medium"),
-    ("M17 - Omega Nebula", "18:20:26", "-16:10:36", "nebula", "easy"),
-    ("M16 - Eagle Nebula", "18:18:48", "-13:47:00", "nebula", "medium"),
-    ("M24 - Sagittarius Star Cloud", "18:16:54", "-18:33:00", "cluster", "easy"),
-    ("Rho Ophiuchi Cloud", "16:25:35", "-23:26:50", "nebula", "hard"),
-    ("Cat's Paw Nebula", "17:19:58", "-35:57:47", "nebula", "medium"),
-    ("Pipe Nebula", "17:33:00", "-26:32:00", "nebula", "hard"),
-    ("M6 - Butterfly Cluster", "17:40:00", "-32:15:00", "cluster", "easy"),
-    ("M7 - Ptolemy Cluster", "17:53:51", "-34:47:34", "cluster", "easy"),
-    ("M22 - Sagittarius Cluster", "18:36:24", "-23:54:17", "cluster", "easy"),
+    ("M8 - Lagoon Nebula", "18:03:37", "-24:23:12", "nebula", "easy", 1.5),
+    ("M20 - Trifid Nebula", "18:02:23", "-23:01:48", "nebula", "medium", 0.5),
+    ("M17 - Omega Nebula", "18:20:26", "-16:10:36", "nebula", "easy", 0.4),
+    ("M16 - Eagle Nebula", "18:18:48", "-13:47:00", "nebula", "medium", 0.6),
+    ("M24 - Sagittarius Star Cloud", "18:16:54", "-18:33:00", "cluster", "easy", 1.7),
+    ("Rho Ophiuchi Cloud", "16:25:35", "-23:26:50", "nebula", "hard", 4.0),
+    ("Cat's Paw Nebula", "17:19:58", "-35:57:47", "nebula", "medium", 0.5),
+    ("Pipe Nebula", "17:33:00", "-26:32:00", "nebula", "hard", 5.0),
+    ("M6 - Butterfly Cluster", "17:40:00", "-32:15:00", "cluster", "easy", 0.4),
+    ("M7 - Ptolemy Cluster", "17:53:51", "-34:47:34", "cluster", "easy", 1.3),
+    ("M22 - Sagittarius Cluster", "18:36:24", "-23:54:17", "cluster", "easy", 0.5),
     # Cygnus/Lyra
-    ("NGC 7000 - North America", "20:58:47", "44:19:48", "nebula", "medium"),
-    ("IC 5070 - Pelican Nebula", "20:50:48", "44:21:00", "nebula", "medium"),
-    ("Veil Nebula - East", "20:56:24", "31:42:30", "nebula", "medium"),
-    ("Veil Nebula - West", "20:45:38", "30:42:30", "nebula", "medium"),
-    ("Crescent Nebula", "20:12:06", "38:21:18", "nebula", "hard"),
-    ("Sadr Region", "20:22:00", "40:15:00", "nebula", "medium"),
-    ("M27 - Dumbbell Nebula", "19:59:36", "22:43:16", "nebula", "easy"),
-    ("M57 - Ring Nebula", "18:53:35", "33:01:45", "nebula", "medium"),
-    ("IC 1318 - Butterfly Nebula", "20:17:00", "41:41:00", "nebula", "medium"),
+    ("NGC 7000 - North America", "20:58:47", "44:19:48", "nebula", "medium", 2.0),
+    ("IC 5070 - Pelican Nebula", "20:50:48", "44:21:00", "nebula", "medium", 1.0),
+    ("Veil Nebula - East", "20:56:24", "31:42:30", "nebula", "medium", 1.2),
+    ("Veil Nebula - West", "20:45:38", "30:42:30", "nebula", "medium", 1.2),
+    ("Crescent Nebula", "20:12:06", "38:21:18", "nebula", "hard", 0.3),
+    ("Sadr Region", "20:22:00", "40:15:00", "nebula", "medium", 2.0),
+    ("M27 - Dumbbell Nebula", "19:59:36", "22:43:16", "nebula", "easy", 0.13),
+    ("M57 - Ring Nebula", "18:53:35", "33:01:45", "nebula", "medium", 0.03),
+    ("IC 1318 - Butterfly Nebula", "20:17:00", "41:41:00", "nebula", "medium", 1.5),
+    ("NGC 6946 - Fireworks Galaxy", "20:34:52", "60:09:14", "galaxy", "hard", 0.2),
     # Serpens/Scutum
-    ("Sh2-86 - Vulpecula OB", "19:40:00", "24:30:00", "nebula", "hard"),
-    ("M11 - Wild Duck Cluster", "18:51:06", "-6:16:00", "cluster", "easy"),
+    ("Sh2-86 - Vulpecula OB", "19:40:00", "24:30:00", "nebula", "hard", 0.5),
+    ("M11 - Wild Duck Cluster", "18:51:06", "-6:16:00", "cluster", "easy", 0.2),
 
     # === FALL (Sep-Nov evening) ===
     # Cassiopeia/Cepheus
-    ("Heart Nebula", "2:32:42", "61:27:00", "nebula", "medium"),
-    ("Soul Nebula", "2:51:30", "60:26:00", "nebula", "medium"),
-    ("IC 1396 - Elephant Trunk", "21:39:06", "57:29:24", "nebula", "medium"),
-    ("Bubble Nebula Region", "23:20:45", "61:12:42", "nebula", "hard"),
-    ("Cave Nebula", "22:56:49", "62:27:08", "nebula", "hard"),
-    ("Pacman Nebula", "1:29:00", "58:45:00", "nebula", "medium"),
-    ("NGC 7789 - Caroline's Rose", "23:57:24", "56:42:30", "cluster", "medium"),
-    ("M52 - Scorpion Cluster", "23:24:48", "61:35:36", "cluster", "easy"),
+    ("Heart Nebula", "2:32:42", "61:27:00", "nebula", "medium", 1.7),
+    ("Soul Nebula", "2:51:30", "60:26:00", "nebula", "medium", 1.7),
+    ("IC 1396 - Elephant Trunk", "21:39:06", "57:29:24", "nebula", "medium", 1.5),
+    ("Bubble Nebula Region", "23:20:45", "61:12:42", "nebula", "hard", 0.3),
+    ("Cave Nebula", "22:56:49", "62:27:08", "nebula", "hard", 0.7),
+    ("Pacman Nebula", "1:29:00", "58:45:00", "nebula", "medium", 0.6),
+    ("Iris Nebula", "21:01:36", "68:10:10", "nebula", "medium", 0.3),
+    ("Wizard Nebula", "22:47:00", "58:06:00", "nebula", "medium", 0.6),
+    ("NGC 7789 - Caroline's Rose", "23:57:24", "56:42:30", "cluster", "medium", 0.3),
+    ("M52 - Scorpion Cluster", "23:24:48", "61:35:36", "cluster", "easy", 0.2),
     # Andromeda/Triangulum
-    ("M31 - Andromeda Galaxy", "0:42:44", "41:16:09", "galaxy", "easy"),
-    ("M33 - Triangulum Galaxy", "1:33:51", "30:39:37", "galaxy", "medium"),
-    # Aquarius/Pegasus
-    ("NGC 253 - Sculptor Galaxy", "0:47:33", "-25:17:18", "galaxy", "medium"),
-    ("Helix Nebula", "22:29:38", "-20:50:14", "nebula", "medium"),
-    ("NGC 7331 + Stephan's Quintet", "22:37:04", "34:24:56", "galaxy", "hard"),
+    ("M31 - Andromeda Galaxy", "0:42:44", "41:16:09", "galaxy", "easy", 3.0),
+    ("M33 - Triangulum Galaxy", "1:33:51", "30:39:37", "galaxy", "medium", 1.0),
+    ("NGC 891 - Silver Sliver", "2:22:33", "42:20:57", "galaxy", "hard", 0.2),
+    ("M77 + NGC 1055", "2:42:41", "-0:00:48", "galaxy", "medium", 0.12),
+    # Aquarius/Pegasus/Sculptor
+    ("NGC 253 - Sculptor Galaxy", "0:47:33", "-25:17:18", "galaxy", "medium", 0.5),
+    ("Helix Nebula", "22:29:38", "-20:50:14", "nebula", "medium", 0.3),
+    ("NGC 7331 + Stephan's Quintet", "22:37:04", "34:24:56", "galaxy", "hard", 0.3),
 
-    # === YEAR-ROUND (circumpolar or always visible) ===
-    ("M13 - Hercules Cluster", "16:41:41", "36:27:37", "cluster", "easy"),
-    ("M92 - Hercules Globular", "17:17:07", "43:08:11", "cluster", "medium"),
-    ("M5 - Rose Globular", "15:18:33", "2:04:58", "cluster", "medium"),
+    # === YEAR-ROUND (globulars, always decent) ===
+    ("M13 - Hercules Cluster", "16:41:41", "36:27:37", "cluster", "easy", 0.3),
+    ("M92 - Hercules Globular", "17:17:07", "43:08:11", "cluster", "medium", 0.2),
+    ("M5 - Rose Globular", "15:18:33", "2:04:58", "cluster", "medium", 0.4),
 ]
 
 
-def get_observer_tonight() -> ephem.Observer:
-    """Create an observer for tonight's prime viewing time (2 hrs after sunset)."""
-    obs = ephem.Observer()
-    obs.lat = str(LATITUDE)
-    obs.lon = str(LONGITUDE)
-    obs.date = datetime.now(timezone.utc)
-
-    # Get next sunset
-    sun = ephem.Sun()
-    try:
-        next_sunset = obs.next_setting(sun)
-    except ephem.AlwaysUpError:
-        next_sunset = obs.date
-
-    # Set time to 2 hours after sunset (astronomical darkness)
-    obs.date = ephem.Date(next_sunset + 2 * ephem.hour)
-    return obs
+def _altitude_at(target: ephem.FixedBody, date) -> float:
+    target.compute(make_observer(date))
+    return to_deg(target.alt)
 
 
-def angular_separation(ra1, dec1, ra2, dec2) -> float:
-    """Calculate angular separation in degrees between two points."""
-    # Convert to radians
-    d1 = math.radians(dec1)
-    d2 = math.radians(dec2)
-    ra_diff = math.radians((ra1 - ra2) * 15)  # RA in hours to degrees to radians
+def _best_time_in_window(obs: ephem.Observer, target: ephem.FixedBody, night: dict):
+    """Find when the target is highest within tonight's observing window."""
+    transit = obs.next_transit(target, start=night["window_start"])
+    if transit <= night["window_end"]:
+        return ephem.Date(transit)
+    # Transit falls outside the window: the target is either already setting
+    # at the start of the window or still rising at the end. Take the better edge.
+    if _altitude_at(target, night["window_start"]) >= _altitude_at(target, night["window_end"]):
+        return night["window_start"]
+    return night["window_end"]
 
-    cos_sep = math.sin(d1) * math.sin(d2) + math.cos(d1) * math.cos(d2) * math.cos(ra_diff)
-    cos_sep = max(-1, min(1, cos_sep))  # Clamp for numerical stability
-    return math.degrees(math.acos(cos_sep))
 
-
-def get_target_info(obs: ephem.Observer, name: str, ra: str, dec: str,
-                    obj_type: str, difficulty: str, moon: ephem.Moon,
-                    window_end: ephem.Date, size_deg: float = None) -> dict:
-    """Calculate visibility info for a target.
-
-    Scores target based on its BEST altitude within the observing window,
-    not just at the snapshot time (2hrs after sunset).
-
-    Args:
-        size_deg: Optional apparent size in degrees for FOV fit scoring
-    """
+def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dict:
+    """Compute a target's peak within the window and moon conditions at that time."""
     target = ephem.FixedBody()
     target._ra = ephem.hours(ra)
     target._dec = ephem.degrees(dec)
+
+    obs = make_observer(night["window_start"])
     target.compute(obs)
 
-    # Current altitude at obs.date (2hrs after sunset)
-    altitude_now = float(target.alt) * 180 / math.pi
-    azimuth = float(target.az) * 180 / math.pi
+    best_time = _best_time_in_window(obs, target, night)
+    obs_best = make_observer(best_time)
+    target.compute(obs_best)
+    altitude = to_deg(target.alt)
 
-    # Moon separation (at current time)
-    moon_ra = float(moon.ra) * 12 / math.pi  # radians to hours
-    moon_dec = float(moon.dec) * 180 / math.pi
-    target_ra = float(target.ra) * 12 / math.pi
-    target_dec = float(target.dec) * 180 / math.pi
-    moon_sep = angular_separation(target_ra, target_dec, moon_ra, moon_dec)
+    # Moon conditions at the target's own peak time (the moon may rise or set
+    # mid-window, so a single evening snapshot would be wrong for late peaks)
+    moon = ephem.Moon(obs_best)
+    moon_up = to_deg(moon.alt) > 0
+    moon_sep = to_deg(ephem.separation(moon, target))
 
-    # Calculate transit time (when target is highest)
-    try:
-        transit = obs.next_transit(target)
-        transit_time = ephem_to_local(transit).strftime("%-I:%M %p")
-
-        # Determine best altitude within observing window
-        window_start = obs.date
-        if window_start <= transit <= window_end:
-            # Transit is within window - use peak altitude
-            obs_at_best = obs.copy()
-            obs_at_best.date = transit
-            target.compute(obs_at_best)
-            best_altitude = float(target.alt) * 180 / math.pi
-        elif transit < window_start:
-            # Transit already passed - target is setting, use current altitude
-            best_altitude = altitude_now
-        else:
-            # Transit is after window ends - target is rising, use altitude at window end
-            obs_at_best = obs.copy()
-            obs_at_best.date = window_end
-            target.compute(obs_at_best)
-            best_altitude = float(target.alt) * 180 / math.pi
-    except (ephem.AlwaysUpError, ephem.NeverUpError):
-        transit_time = "N/A"
-        best_altitude = altitude_now
+    is_late = best_time > night["prime_end"]
+    hours_late = max(0.0, (best_time - night["prime_end"]) * 24)
 
     return {
         "name": name,
         "type": obj_type,
         "difficulty": difficulty,
-        "altitude": round(best_altitude, 1),  # Use BEST altitude for scoring
-        "azimuth": round(azimuth, 1),
+        "altitude": round(altitude, 1),
+        "azimuth": round(to_deg(target.az), 1),
+        "visible": altitude > 15,
+        "peak_time": fmt_time(best_time),
+        "is_late": is_late,
+        "hours_late": hours_late,
+        "moon_up": moon_up,
         "moon_separation": round(moon_sep, 1),
-        "visible": best_altitude > 15,  # Visible if it gets above 15° during window
-        "transit_time": transit_time,
-        "size_deg": size_deg,  # Apparent size in degrees (None if not specified)
+        "moon_phase": moon.phase,
+        "size_deg": size_deg,
     }
 
 
-def get_planets(obs: ephem.Observer, moon: ephem.Moon) -> list:
-    """Get planet positions."""
-    planets = [
-        ("Venus", ephem.Venus(obs)),
-        ("Mars", ephem.Mars(obs)),
-        ("Jupiter", ephem.Jupiter(obs)),
-        ("Saturn", ephem.Saturn(obs)),
-    ]
+def score_target(t: dict) -> float:
+    """Score a target 0-10 for tonight.
 
-    results = []
-    for name, planet in planets:
-        altitude = float(planet.alt) * 180 / math.pi
-        azimuth = float(planet.az) * 180 / math.pi
-
-        moon_ra = float(moon.ra) * 12 / math.pi
-        moon_dec = float(moon.dec) * 180 / math.pi
-        planet_ra = float(planet.ra) * 12 / math.pi
-        planet_dec = float(planet.dec) * 180 / math.pi
-        moon_sep = angular_separation(planet_ra, planet_dec, moon_ra, moon_dec)
-
-        results.append({
-            "name": name,
-            "type": "planet",
-            "difficulty": "easy",
-            "altitude": round(altitude, 1),
-            "azimuth": round(azimuth, 1),
-            "moon_separation": round(moon_sep, 1),
-            "visible": altitude > 10,
-        })
-
-    return results
-
-
-def get_recommendations() -> list:
-    """Get ranked list of targets for tonight.
-
-    Returns:
-        List of targets sorted by score (best first)
+    Breakdown: 3.0 (altitude) + 3.5 (moon) + 1.5 (type) + 1.0 (difficulty)
+             + 0.5 (FOV fit) + 0.5 (prime time) = 10.0
     """
-    obs = get_observer_tonight()
-    moon = ephem.Moon(obs)
-    moon_phase = moon.phase
+    if not t["visible"]:
+        return 0.0
 
-    # Calculate observing window end time (min of 11 PM, moon rise if >50%, or dawn)
-    window_start_dt = ephem_to_local(obs.date)
-    max_obs_time = window_start_dt.replace(hour=MAX_OBSERVING_HOUR, minute=0, second=0, microsecond=0)
-    if max_obs_time < window_start_dt:
-        max_obs_time = max_obs_time.replace(day=max_obs_time.day + 1)
-    max_obs_ephem = ephem.Date(max_obs_time.astimezone(pytz.UTC))
+    # Altitude (0-3.0): 30-75° optimal, continuous ramps below,
+    # slight ding near zenith where the alt-az mount struggles
+    alt = t["altitude"]
+    if alt >= 75:
+        alt_score = 2.5
+    elif alt >= 30:
+        alt_score = 3.0
+    elif alt >= 20:
+        alt_score = 1.0 + (alt - 20) * 0.2
+    else:
+        alt_score = 0.5 + (alt - 15) * 0.1
 
-    sun = ephem.Sun()
-    obs_now = ephem.Observer()
-    obs_now.lat = str(LATITUDE)
-    obs_now.lon = str(LONGITUDE)
-    obs_now.date = datetime.now(timezone.utc)
-    sunrise = obs_now.next_rising(sun)
+    # Moon (0-3.5), evaluated at the target's peak time
+    if not t["moon_up"]:
+        moon_score = 3.5  # Moon below horizon = perfect
+    else:
+        sep = t["moon_separation"]
+        if sep >= 90:
+            moon_score = 3.0
+        elif sep >= 60:
+            moon_score = 2.4
+        elif sep >= 30:
+            moon_score = 1.2
+        else:
+            moon_score = 0.5
+        # Phase kicker: a dim moon (or a distant one) hurts much less
+        phase = t["moon_phase"]
+        if sep >= 60 or phase < 25:
+            moon_score += 0.5
+        elif phase < 50:
+            moon_score += 0.35
+        elif phase < 75:
+            moon_score += 0.15
 
-    end_times = []
-    moon_rise_time = None
-    try:
-        moon_rise_time = obs.next_rising(moon)
-        if moon_phase > 50 and moon_rise_time < sunrise:
-            end_times.append(moon_rise_time)
-    except (ephem.AlwaysUpError, ephem.NeverUpError):
-        pass
-    end_times.append(ephem.Date(sunrise - 1 * ephem.hour))
-    end_times.append(max_obs_ephem)
-    window_end = min(end_times)
+    # Type (0-1.5): galaxies favored, clusters mostly ignored
+    type_score = TYPE_WEIGHTS.get(t["type"], 0.5)
+
+    # Difficulty (0-1.0)
+    diff_score = {"easy": 1.0, "medium": 0.8, "hard": 0.5}.get(t["difficulty"], 0.7)
+
+    # FOV fit (0-0.5): how well the target fills DWARF3's frame
+    fov_score = 0.0
+    size = t["size_deg"]
+    if size is not None:
+        if DWARF3_OPTIMAL_TARGET_MIN <= size <= DWARF3_OPTIMAL_TARGET_MAX:
+            fov_score = 0.5
+        elif 0.1 <= size < DWARF3_OPTIMAL_TARGET_MIN:
+            fov_score = 0.25
+        elif DWARF3_OPTIMAL_TARGET_MAX < size <= 3.0:
+            fov_score = 0.2
+        # else: too large (>3°) or too tiny (<0.1°), no bonus
+
+    # Prime time (0-0.5): full bonus for peaking before the cutoff,
+    # gentle decay after — a great 2 AM target is still worth leaving out for
+    prime_score = max(0.0, PRIME_BONUS - LATE_PENALTY_PER_HOUR * t["hours_late"])
+
+    return round(alt_score + moon_score + type_score + diff_score + fov_score + prime_score, 1)
+
+
+def get_recommendations(night: dict = None) -> list:
+    """Get ranked list of targets for tonight (best first)."""
+    night = night or get_night()
 
     targets = []
+    for name, ra, dec, obj_type, difficulty, size_deg in DSO_CATALOG:
+        t = evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night)
+        t["score"] = score_target(t)
+        targets.append(t)
 
-    # Add DSOs (planets skipped - too small for DWARF3's wide field)
-    for entry in DSO_CATALOG:
-        # Handle both 5-tuple (without size) and 6-tuple (with size) catalog entries
-        if len(entry) == 5:
-            name, ra, dec, obj_type, difficulty = entry
-            size_deg = None
-        else:
-            name, ra, dec, obj_type, difficulty, size_deg = entry
-
-        info = get_target_info(obs, name, ra, dec, obj_type, difficulty, moon, window_end, size_deg)
-        targets.append(info)
-
-    # Get moon altitude to check if it's actually visible
-    moon_alt_deg = float(moon.alt) * 180 / math.pi
-    moon_is_up = moon_alt_deg > 0
-
-    # Score each target on 1-10 scale
-    for t in targets:
-        if not t["visible"]:
-            t["score"] = 0
-            continue
-
-        # Altitude score (0-3 points): smooth gradient, 30-70° optimal
-        alt = t["altitude"]
-        if alt >= 70:
-            alt_score = 2.5  # High altitude, more atmosphere near horizon
-        elif alt >= 30:
-            alt_score = 3.0  # Optimal range
-        elif alt >= 20:
-            # Smooth gradient from 2.0 at 30° down to 1.0 at 20°
-            alt_score = 1.0 + (alt - 20) * 0.1
-        elif alt >= 15:
-            # Smooth gradient from 1.0 at 20° down to 0.5 at 15°
-            alt_score = 0.5 + (alt - 15) * 0.1
-        else:
-            alt_score = 0
-
-        # Moon separation & phase scoring (max 3.0 + 1.5 = 4.5 points)
-        # CRITICAL: Only apply moon penalties if moon is actually above horizon
-        if not moon_is_up:
-            # Moon is down - perfect conditions for DSO
-            moon_sep_score = 3.0
-            moon_phase_score = 1.5
-        else:
-            # Moon is up - apply separation and phase penalties
-            sep = t["moon_separation"]
-            if sep >= 90:
-                moon_sep_score = 3.0
-            elif sep >= 60:
-                moon_sep_score = 2.0
-            elif sep >= 30:
-                moon_sep_score = 1.0
-            else:
-                moon_sep_score = 0.5
-
-            # Moon phase score (0-1.5 points): only penalize if moon is close (<60°)
-            # If moon is far away, phase doesn't matter
-            if sep >= 60:
-                moon_phase_score = 1.5  # Moon far enough to not matter
-            else:
-                # Moon is close, so phase matters
-                if moon_phase < 25:
-                    moon_phase_score = 1.5
-                elif moon_phase < 50:
-                    moon_phase_score = 1.1
-                elif moon_phase < 75:
-                    moon_phase_score = 0.8
-                else:
-                    moon_phase_score = 0.4
-
-        # Difficulty score (0-1.5 points): easier = higher
-        diff_scores = {"easy": 1.5, "medium": 1.1, "hard": 0.8}
-        diff_score = diff_scores.get(t["difficulty"], 1.0)
-
-        # Object type bonus (0-0.5 points): preference for galaxies
-        type_bonus = 0.0
-        if t["type"] == "galaxy":
-            type_bonus = 0.5
-        elif t["type"] == "nebula":
-            type_bonus = 0.2
-        # clusters get 0
-
-        # FOV fit bonus (0-0.5 points): targets that fit DWARF3's FOV well
-        fov_bonus = 0.0
-        if t["size_deg"] is not None:
-            size = t["size_deg"]
-            if DWARF3_OPTIMAL_TARGET_MIN <= size <= DWARF3_OPTIMAL_TARGET_MAX:
-                # Optimal size for DWARF3's 3° x 1.65° FOV
-                fov_bonus = 0.5
-            elif size < DWARF3_OPTIMAL_TARGET_MIN and size >= 0.1:
-                # Small but visible, proportional bonus
-                fov_bonus = 0.25
-            elif size > DWARF3_OPTIMAL_TARGET_MAX and size <= 3.0:
-                # Slightly too large but still workable
-                fov_bonus = 0.2
-            # else: too large (>3°) or too tiny (<0.1°), no bonus
-
-        # Total: max 10 points
-        # Breakdown: 3.0 (alt) + 3.0 (moon_sep) + 1.5 (moon_phase) + 1.5 (diff) + 0.5 (type) + 0.5 (fov) = 10.0
-        total = alt_score + moon_sep_score + moon_phase_score + diff_score + type_bonus + fov_bonus
-        t["score"] = round(total, 1)
-
-    # Sort by score descending
     targets.sort(key=lambda x: x["score"], reverse=True)
-
     return targets
 
 
 if __name__ == "__main__":
-    obs = get_observer_tonight()
-    viewing_time = ephem_to_local(obs.date).strftime("%-I:%M %p")
-    print(f"=== Tonight's Top Targets (calculated for {viewing_time}) ===\n")
+    night = get_night()
+    print(f"=== Tonight's Targets ({fmt_time(night['window_start'])} - {fmt_time(night['window_end'])}, "
+          f"prime until {fmt_time(night['prime_end'])}) ===\n")
 
-    targets = get_recommendations()
+    targets = get_recommendations(night)
+    good = [t for t in targets if t["score"] >= MIN_TARGET_SCORE]
 
-    # Filter to 6+ and take top 5
-    good_targets = [t for t in targets if t["score"] >= 6][:5]
+    if not good:
+        print(f"No targets scoring {MIN_TARGET_SCORE}+ tonight. Best available:")
+        good = [t for t in targets if t["visible"]][:5]
 
-    if not good_targets:
-        print("No targets scoring 6+ right now")
-        print("\nBest available:")
-        for t in targets[:3]:
-            if t["visible"]:
-                print(f"  {t['name']} - Score: {t['score']}/10")
-    else:
-        for i, t in enumerate(good_targets, 1):
-            print(f"{i}. {t['name']} [{t['score']}/10]")
-            print(f"   Alt: {t['altitude']}° | Moon sep: {t['moon_separation']}°")
-            print()
+    for section, label in ((False, "PRIME (before cutoff)"), (True, "OVERNIGHT (leave it out)")):
+        picks = [t for t in good if t["is_late"] == section]
+        if not picks:
+            continue
+        print(f"--- {label} ---")
+        for i, t in enumerate(picks[:10], 1):
+            moon_note = f"moon {t['moon_separation']:.0f}° away" if t["moon_up"] else "moon down"
+            print(f"{i:2}. {t['name']} [{t['score']}/10]")
+            print(f"     {t['type']}, peak {t['peak_time']} @ {t['altitude']}°, {moon_note}")
+        print()

@@ -1,35 +1,64 @@
 """Clear Skies Tonight - Main orchestrator."""
 
-from weather import get_weather
+import sys
+
+from astro import fmt_time, get_night
+from config import MIN_CONDITIONS_SCORE, MIN_TARGET_SCORE, TOP_TARGETS_COUNT
 from moon import get_moon_info
-from targets import get_recommendations
 from notifier import send_notification
-from config import MIN_TARGET_SCORE, MIN_CONDITIONS_SCORE, TOP_TARGETS_COUNT
+from targets import get_recommendations
+from weather import get_weather
+
+
+def find_clear_stretch(hours: list, max_cloud: int = 40, min_hours: int = 2) -> list | None:
+    """Find the longest run of consecutive hours at or under max_cloud cover."""
+    best, run = None, []
+    for h in hours + [None]:
+        if h and h["cloud_cover"] <= max_cloud:
+            run.append(h)
+        else:
+            if len(run) >= min_hours and (best is None or len(run) > len(best)):
+                best = run
+            run = []
+    return best
 
 
 def assess_conditions(weather: dict, moon: dict) -> tuple[int, str]:
-    """Score overall conditions 1-10 and return summary.
+    """Score overall conditions 1-10 and return a summary.
 
-    Returns:
-        (score, summary_text)
+    Scores the best clear stretch of the night rather than a single evening
+    snapshot - a night that clears at 11 PM is still worth setting up for.
     """
-    score = 10  # Start perfect, deduct for issues
+    hours = weather["hours"]
+    stretch = find_clear_stretch(hours)
+    all_night = stretch is None or (
+        stretch[0]["time"] == hours[0]["time"] and stretch[-1]["time"] == hours[-1]["time"]
+    )
+
+    score = 10
     issues = []
 
-    # Cloud cover (biggest factor)
-    clouds = weather["cloud_cover"]
+    if stretch is None:
+        # No 2-hour run under 40% clouds - not an imaging night
+        stretch = hours
+        score -= 2
+        issues.append("no clear stretch")
+
+    def avg(key):
+        return sum(h[key] for h in stretch) / len(stretch)
+
+    clouds = avg("cloud_cover")
     if clouds > 80:
         score -= 5
-        issues.append(f"Cloudy ({clouds}%)")
+        issues.append(f"Cloudy ({clouds:.0f}%)")
     elif clouds > 50:
         score -= 3
-        issues.append(f"Partly cloudy ({clouds}%)")
+        issues.append(f"Partly cloudy ({clouds:.0f}%)")
     elif clouds > 25:
         score -= 1
-        issues.append(f"Some clouds ({clouds}%)")
+        issues.append(f"Some clouds ({clouds:.0f}%)")
 
-    # Humidity (affects transparency)
-    humidity = weather["humidity"]
+    humidity = avg("humidity")
     if humidity > 90:
         score -= 2
         issues.append("Very humid")
@@ -37,8 +66,7 @@ def assess_conditions(weather: dict, moon: dict) -> tuple[int, str]:
         score -= 1
         issues.append("Humid")
 
-    # Wind (affects tracking)
-    wind = weather["wind_mph"]
+    wind = avg("wind_mph")
     if wind > 15:
         score -= 2
         issues.append(f"Windy ({wind:.0f} mph)")
@@ -46,90 +74,107 @@ def assess_conditions(weather: dict, moon: dict) -> tuple[int, str]:
         score -= 1
         issues.append(f"Breezy ({wind:.0f} mph)")
 
-    # Moon phase (for DSO imaging)
-    if moon["phase_pct"] > 75 and moon["is_up"]:
+    if moon["phase_pct"] > 75 and moon["interferes_tonight"]:
         score -= 2
         issues.append(f"Bright moon ({moon['phase_pct']:.0f}%)")
-    elif moon["phase_pct"] > 50 and moon["is_up"]:
+    elif moon["phase_pct"] > 50 and moon["interferes_tonight"]:
         score -= 1
         issues.append(f"Moon up ({moon['phase_pct']:.0f}%)")
 
-    score = max(1, score)  # Floor at 1
+    # Timing notes when only part of the night is clear
+    if not all_night:
+        if stretch[0]["time"] != hours[0]["time"]:
+            issues.append(f"clears ~{stretch[0]['label']}")
+        if stretch[-1]["time"] != hours[-1]["time"]:
+            issues.append(f"clouds return ~{stretch[-1]['label']}")
 
-    if not issues:
-        summary = "Excellent conditions!"
-    else:
-        summary = ", ".join(issues)
-
+    score = max(1, score)
+    summary = ", ".join(issues) if issues else "Excellent conditions!"
     return score, summary
 
 
 def get_priority(conditions_score: int, best_target_score: float) -> str:
     """Determine notification priority based on scores."""
     combined = (conditions_score + best_target_score) / 2
-
     if combined >= 8:
         return "high"
-    elif combined >= 6:
+    if combined >= 6:
         return "default"
-    else:
-        return "low"
+    return "low"
 
 
-def run():
+def build_message(conditions_summary: str, night: dict, moon: dict,
+                  prime: list, late: list) -> str:
+    lines = [conditions_summary]
+    lines.append(f"Dark: {fmt_time(night['window_start'])} - {fmt_time(night['window_end'])}")
+
+    moon_line = f"Moon: {moon['phase_name']} ({moon['phase_pct']:.0f}%)"
+    if moon["is_up"] and moon["setting"]:
+        moon_line += f", sets {moon['setting']}"
+    elif not moon["is_up"] and moon["rising"]:
+        moon_line += f", rises {moon['rising']}"
+    lines.append(moon_line)
+
+    if prime:
+        lines.append("")
+        lines.append(f"By {fmt_time(night['prime_end'])}:")
+        for t in prime:
+            lines.append(f"- {t['name']} [{t['score']}] peak {t['peak_time']} @ {t['altitude']:.0f}°")
+
+    if late:
+        lines.append("")
+        lines.append("Overnight (leave it out):")
+        for t in late:
+            lines.append(f"- {t['name']} [{t['score']}] peak {t['peak_time']} @ {t['altitude']:.0f}°")
+
+    return "\n".join(lines)
+
+
+def run(dry_run: bool = False):
     """Main entry point."""
-    # Gather data
-    weather = get_weather()
+    night = get_night()
+
+    weather = get_weather(night)
     if not weather:
         print("Failed to fetch weather")
         return
 
-    moon = get_moon_info()
-    targets = get_recommendations()
+    moon = get_moon_info(night)
+    targets = get_recommendations(night)
 
-    # Assess conditions
     conditions_score, conditions_summary = assess_conditions(weather, moon)
 
-    # Get top targets
-    good_targets = [t for t in targets if t["score"] >= MIN_TARGET_SCORE][:TOP_TARGETS_COUNT]
+    good = [t for t in targets if t["score"] >= MIN_TARGET_SCORE]
+    prime = [t for t in good if not t["is_late"]][:TOP_TARGETS_COUNT]
+    late = [t for t in good if t["is_late"]][:TOP_TARGETS_COUNT]
 
-    # Decide whether to notify
     if conditions_score < MIN_CONDITIONS_SCORE:
         print(f"Conditions poor ({conditions_score}/10): {conditions_summary}")
         print("No notification sent.")
         return
 
-    if not good_targets:
-        print("No targets scoring 6+ tonight.")
+    if not prime and not late:
+        print(f"No targets scoring {MIN_TARGET_SCORE}+ tonight.")
         print("No notification sent.")
         return
 
-    # Build notification
-    best = good_targets[0]
     title = f"Clear Skies Tonight [{conditions_score}/10]"
+    message = build_message(conditions_summary, night, moon, prime, late)
+    priority = get_priority(conditions_score, good[0]["score"])
 
-    lines = [conditions_summary]
-    lines.append(f"Window: {moon['window_start']} - {moon['window_end']}")
-    lines.append("")
-    lines.append("Top targets:")
-    for i, t in enumerate(good_targets, 1):
-        lines.append(f"{i}. {t['name']} [{t['score']}/10] peak @ {t['transit_time']}")
-
-    message = "\n".join(lines)
-    priority = get_priority(conditions_score, best["score"])
-
-    # Send it
-    print(f"Conditions: {conditions_score}/10 - {conditions_summary}")
-    print(f"Best target: {best['name']} [{best['score']}/10]")
-    print(f"Priority: {priority}")
+    print(f"=== {title} (priority: {priority}) ===")
+    print(message)
     print()
 
-    success = send_notification(title, message, priority)
-    if success:
+    if dry_run:
+        print("(dry run - notification not sent)")
+        return
+
+    if send_notification(title, message, priority):
         print("Notification sent!")
     else:
         print("Notification failed!")
 
 
 if __name__ == "__main__":
-    run()
+    run(dry_run="--dry-run" in sys.argv)

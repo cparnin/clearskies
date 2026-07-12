@@ -24,7 +24,9 @@ def send_notification(title: str, message: str, priority: str = "default") -> bo
             headers={
                 "Title": title,
                 "Priority": priority,
+                "Tags": "telescope,milky_way",
             },
+            timeout=30,
         )
         return response.status_code == 200
     except Exception as e:
