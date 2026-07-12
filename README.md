@@ -28,6 +28,7 @@ Optional:
 
 **4. Test**
 ```bash
+python tests.py            # offline sanity checks (also run in CI)
 python main.py --dry-run   # prints the notification without sending it
 python main.py             # the real thing
 ```
@@ -41,14 +42,18 @@ For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TO
 Runs daily at 4/5 PM ET (GitHub Actions), evaluates:
 - Weather hour-by-hour across the whole night (finds the best clear stretch, not just an evening snapshot)
 - Moon phase and position, checked at each target's own peak time
-- 89 deep sky targets scored on their peak altitude between darkness and dawn
+- 89 deep sky targets scored on their peak altitude between astronomical darkness
+  (sun 18° below the horizon) and astronomical dawn
 
 Sends a push notification if conditions score 6+ and good targets exist. Targets are
 split into two sections: peaking **before midnight** (attended imaging) and
 **overnight** (set up the DWARF3 and leave it out).
 
-If the evening is cloudy but the sky clears later, you still get notified, with a
-note like "clears ~1 AM". A night with no 2-hour clear stretch never notifies.
+Targets are scored against the hours the sky is actually clear: if the evening is
+cloudy but it clears at 1 AM, the notification says so ("clears ~1 AM", with a
+`Clear:` window line) and recommends what peaks *during* the clearing - not what
+would have peaked under the clouds. A night with no 2-hour clear stretch never
+notifies.
 
 ---
 

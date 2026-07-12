@@ -33,22 +33,34 @@ def make_observer(date=None) -> ephem.Observer:
     return obs
 
 
+def local_to_ephem(dt: datetime) -> ephem.Date:
+    return ephem.Date(dt.astimezone(pytz.UTC))
+
+
 def get_night() -> dict:
     """Compute tonight's observing window.
 
-    The window runs from darkness (sunset + 2h) to an hour before sunrise,
-    so late-night targets are always considered — the DWARF3 can run
-    unattended all night. `prime_end` marks the before-midnight cutoff:
-    targets peaking earlier get a scoring bonus.
+    The window runs from astronomical darkness (sun 18° below the horizon)
+    to astronomical dawn, so late-night targets are always considered — the
+    DWARF3 can run unattended all night. `prime_end` marks the
+    before-midnight cutoff: targets peaking earlier get a scoring bonus.
     """
     obs = make_observer()
     sun = ephem.Sun()
-
     sunset = obs.next_setting(sun)
-    sunrise = make_observer(sunset).next_rising(sun)
 
-    window_start = ephem.Date(sunset + 2 * ephem.hour)
-    window_end = ephem.Date(sunrise - 1 * ephem.hour)
+    dark = make_observer()
+    dark.horizon = "-18"  # astronomical twilight
+    try:
+        window_start = dark.next_setting(sun, use_center=True)
+        dark.date = window_start
+        window_end = dark.next_rising(sun, use_center=True)
+    except (ephem.AlwaysUpError, ephem.NeverUpError):
+        # High latitudes where the sun never gets 18° down: approximate
+        window_start = ephem.Date(sunset + 2 * ephem.hour)
+        window_end = ephem.Date(make_observer(sunset).next_rising(sun) - 1 * ephem.hour)
+
+    sunrise = make_observer(sunset).next_rising(sun)
 
     # Prime cutoff: PRIME_END_HOUR is hours after the start of the evening's
     # calendar day (24 = midnight, 23 = 11 PM, 25 = 1 AM).

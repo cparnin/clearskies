@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Run tests
+        run: python tests.py
+
       - name: Check conditions and notify
         env:
           LATITUDE: ${{ secrets.LATITUDE }}

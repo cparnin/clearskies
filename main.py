@@ -1,8 +1,11 @@
 """Clear Skies Tonight - Main orchestrator."""
 
 import sys
+from datetime import timedelta
 
-from astro import fmt_time, get_night
+import ephem
+
+from astro import ephem_to_local, fmt_time, get_night, local_to_ephem
 from config import MIN_CONDITIONS_SCORE, MIN_TARGET_SCORE, TOP_TARGETS_COUNT
 from moon import get_moon_info
 from notifier import send_notification
@@ -23,14 +26,32 @@ def find_clear_stretch(hours: list, max_cloud: int = 40, min_hours: int = 2) -> 
     return best
 
 
-def assess_conditions(weather: dict, moon: dict) -> tuple[int, str]:
+def effective_night(night: dict, stretch: list | None) -> dict:
+    """Clamp the observing window to the clear stretch of weather, so targets
+    are scored for when the sky is actually usable - not for hours of clouds."""
+    if stretch is None:
+        return night
+
+    start = max(night["window_start"], local_to_ephem(stretch[0]["time"]))
+    end = min(night["window_end"], local_to_ephem(stretch[-1]["time"] + timedelta(hours=1)))
+    if start >= end:
+        return night
+
+    eff = dict(night)
+    eff["window_start"] = ephem.Date(start)
+    eff["window_end"] = ephem.Date(end)
+    eff["start_local"] = ephem_to_local(start)
+    eff["end_local"] = ephem_to_local(end)
+    return eff
+
+
+def assess_conditions(weather: dict, moon: dict, stretch: list | None) -> tuple[int, str]:
     """Score overall conditions 1-10 and return a summary.
 
     Scores the best clear stretch of the night rather than a single evening
     snapshot - a night that clears at 11 PM is still worth setting up for.
     """
     hours = weather["hours"]
-    stretch = find_clear_stretch(hours)
     all_night = stretch is None or (
         stretch[0]["time"] == hours[0]["time"] and stretch[-1]["time"] == hours[-1]["time"]
     )
@@ -103,10 +124,12 @@ def get_priority(conditions_score: int, best_target_score: float) -> str:
     return "low"
 
 
-def build_message(conditions_summary: str, night: dict, moon: dict,
+def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dict,
                   prime: list, late: list) -> str:
     lines = [conditions_summary]
     lines.append(f"Dark: {fmt_time(night['window_start'])} - {fmt_time(night['window_end'])}")
+    if imaging["window_start"] != night["window_start"] or imaging["window_end"] != night["window_end"]:
+        lines.append(f"Clear: {fmt_time(imaging['window_start'])} - {fmt_time(imaging['window_end'])}")
 
     moon_line = f"Moon: {moon['phase_name']} ({moon['phase_pct']:.0f}%)"
     if moon["is_up"] and moon["setting"]:
@@ -140,9 +163,12 @@ def run(dry_run: bool = False):
         return
 
     moon = get_moon_info(night)
-    targets = get_recommendations(night)
 
-    conditions_score, conditions_summary = assess_conditions(weather, moon)
+    stretch = find_clear_stretch(weather["hours"])
+    imaging = effective_night(night, stretch)
+    targets = get_recommendations(imaging)
+
+    conditions_score, conditions_summary = assess_conditions(weather, moon, stretch)
 
     good = [t for t in targets if t["score"] >= MIN_TARGET_SCORE]
     prime = [t for t in good if not t["is_late"]][:TOP_TARGETS_COUNT]
@@ -159,7 +185,7 @@ def run(dry_run: bool = False):
         return
 
     title = f"Clear Skies Tonight [{conditions_score}/10]"
-    message = build_message(conditions_summary, night, moon, prime, late)
+    message = build_message(conditions_summary, night, imaging, moon, prime, late)
     priority = get_priority(conditions_score, good[0]["score"])
 
     print(f"=== {title} (priority: {priority}) ===")
