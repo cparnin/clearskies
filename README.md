@@ -120,3 +120,7 @@ Targets scored 0-10 based on tonight's conditions (6+ threshold):
 **Wrong targets?**
 - Check `LATITUDE`/`LONGITUDE` are correct
 - Targets are scored at their peak altitude during the night, not at sunset
+
+---
+
+Built by [Chad Parnin](https://chadparnin.com).
