@@ -1,4 +1,4 @@
-"""Clear Skies Tonight - Main orchestrator."""
+"""ClearSkies - Main orchestrator."""
 
 import sys
 from datetime import timedelta
@@ -114,6 +114,15 @@ def assess_conditions(weather: dict, moon: dict, stretch: list | None) -> tuple[
     return score, summary
 
 
+def top_with_ties(ranked: list, count: int) -> list:
+    """First `count` of a score-sorted list, extended through any targets
+    tied with the last slot - a tie shouldn't be broken by list order."""
+    if len(ranked) <= count:
+        return ranked
+    cutoff = ranked[count - 1]["score"]
+    return [t for t in ranked if t["score"] >= cutoff]
+
+
 def get_priority(conditions_score: int, best_target_score: float) -> str:
     """Determine notification priority based on scores."""
     combined = (conditions_score + best_target_score) / 2
@@ -171,8 +180,8 @@ def run(dry_run: bool = False):
     conditions_score, conditions_summary = assess_conditions(weather, moon, stretch)
 
     good = [t for t in targets if t["score"] >= MIN_TARGET_SCORE]
-    prime = [t for t in good if not t["is_late"]][:TOP_TARGETS_COUNT]
-    late = [t for t in good if t["is_late"]][:TOP_TARGETS_COUNT]
+    prime = top_with_ties([t for t in good if not t["is_late"]], TOP_TARGETS_COUNT)
+    late = top_with_ties([t for t in good if t["is_late"]], TOP_TARGETS_COUNT)
 
     if conditions_score < MIN_CONDITIONS_SCORE:
         print(f"Conditions poor ({conditions_score}/10): {conditions_summary}")
@@ -184,7 +193,7 @@ def run(dry_run: bool = False):
         print("No notification sent.")
         return
 
-    title = f"Clear Skies Tonight [{conditions_score}/10]"
+    title = f"ClearSkies [{conditions_score}/10]"
     message = build_message(conditions_summary, night, imaging, moon, prime, late)
     priority = get_priority(conditions_score, good[0]["score"])
 

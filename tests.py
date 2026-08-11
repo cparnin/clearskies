@@ -3,8 +3,9 @@
 from datetime import datetime, timedelta
 
 from astro import LOCAL_TZ, get_night, local_to_ephem
-from main import assess_conditions, effective_night, find_clear_stretch
-from targets import DSO_CATALOG, score_target
+from config import _parse_horizon_mask
+from main import assess_conditions, effective_night, find_clear_stretch, top_with_ties
+from targets import DSO_CATALOG, _shootable_by_cutoff, is_blocked, score_target
 
 passed = 0
 
@@ -52,6 +53,36 @@ check("moon down beats bright moon nearby",
 check("invisible target scores 0", score_target(fake_target(visible=False)) == 0.0)
 check("low altitude hurts", score_target(fake_target(altitude=18.0)) < score_target(fake_target(altitude=45.0)))
 
+print("horizon mask:")
+check("clear horizon blocks nothing", not is_blocked(20.0, 300.0, mask=[], min_altitude=15.0))
+check("global floor blocks low peaks", is_blocked(29.5, 100.0, mask=[], min_altitude=30.0))
+check("wedge blocks under its min alt", is_blocked(45.0, 293.0, mask=[(250, 340, 90)], min_altitude=0.0))
+check("target above wedge clears it", not is_blocked(50.0, 300.0, mask=[(250, 340, 45)], min_altitude=0.0))
+check("azimuth outside wedge unaffected", not is_blocked(20.0, 180.0, mask=[(250, 340, 90)], min_altitude=15.0))
+check("wedge edges are inclusive", is_blocked(30.0, 250.0, mask=[(250, 340, 90)], min_altitude=0.0)
+      and is_blocked(30.0, 340.0, mask=[(250, 340, 90)], min_altitude=0.0))
+check("wraparound wedge blocks across north",
+      is_blocked(30.0, 5.0, mask=[(340, 20, 35)], min_altitude=0.0)
+      and is_blocked(30.0, 350.0, mask=[(340, 20, 35)], min_altitude=0.0))
+check("wraparound wedge spares the south", not is_blocked(30.0, 180.0, mask=[(340, 20, 35)], min_altitude=0.0))
+check("env mask parsing",
+      _parse_horizon_mask("250-340:90,340-20:35") == [(250.0, 340.0, 90.0), (340.0, 20.0, 35.0)])
+
+print("prime cutoff:")
+check("near-peak by cutoff counts as prime",  # Veil East on 8/11: 76° at midnight, 86° peak at 1 AM
+      _shootable_by_cutoff(76.0, 12.0, 86.4, mask=[], min_altitude=30.0))
+check("still climbing stays overnight", not _shootable_by_cutoff(40.0, 90.0, 80.0, mask=[], min_altitude=30.0))
+check("blocked at cutoff stays overnight",
+      not _shootable_by_cutoff(50.0, 300.0, 55.0, mask=[(250, 340, 90)], min_altitude=30.0))
+check("below floor at cutoff stays overnight",
+      not _shootable_by_cutoff(25.0, 90.0, 28.0, mask=[], min_altitude=30.0))
+
+print("top with ties:")
+ranked = [{"score": s} for s in (9.5, 9.3, 9.3, 9.0, 8.8, 8.8, 8.7)]
+check("cuts at count when no tie at the edge", len(top_with_ties(ranked, 4)) == 4)
+check("tie at the last slot extends the list", len(top_with_ties(ranked, 5)) == 6)
+check("short list passes through", top_with_ties(ranked, 10) == ranked)
+
 print("clear stretch:")
 check("finds the clear run", [h["cloud_cover"] for h in find_clear_stretch(fake_hours([90, 10, 5, 10, 95]))] == [10, 5, 10])
 check("no stretch when socked in", find_clear_stretch(fake_hours([100] * 6)) is None)
@@ -96,5 +127,19 @@ check("window ordered", night["window_start"] < night["window_end"])
 check("window is 3-14 hours", 3 < (night["window_end"] - night["window_start"]) * 24 < 14)
 check("prime end within window", night["window_start"] <= night["prime_end"] <= night["window_end"])
 check("dark starts after sunset", night["window_start"] > night["sunset"])
+
+print("tonight's recommendations (live ephem, offline):")
+import targets as targets_mod
+saved = targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE
+try:
+    targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE = [], -90.0
+    unmasked = targets_mod.get_recommendations(night)
+    check("no mask keeps the whole catalog", len(unmasked) == len(DSO_CATALOG))
+finally:
+    targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE = saved
+masked = targets_mod.get_recommendations(night)
+check("mask only ever removes targets", len(masked) <= len(unmasked))
+check("no blocked peak survives the mask",
+      all(not is_blocked(t["altitude"], t["azimuth"]) for t in masked))
 
 print(f"\n{passed} checks passed")

@@ -37,7 +37,7 @@ def send_notification(title: str, message: str, priority: str = "default") -> bo
 if __name__ == "__main__":
     # Test notification
     success = send_notification(
-        title="Clear Skies Test",
+        title="ClearSkies Test",
         message="If you see this, notifications are working!",
         priority="default"
     )

@@ -1,4 +1,4 @@
-name: Clear Skies Check
+name: ClearSkies Check
 
 on:
   schedule:

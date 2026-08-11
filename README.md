@@ -1,4 +1,4 @@
-# Clear Skies Tonight
+# ClearSkies
 
 Push notifications for optimal astrophotography conditions with DWARF3.
 
@@ -19,10 +19,12 @@ Required changes:
 - `NTFY_TOPIC` - Your unique notification topic
 
 Optional:
-- `PRIME_END_HOUR` - Before-midnight cutoff for the prime-time bonus (default: 24 = midnight)
+- `HORIZON_MASK` - Azimuth wedges your local horizon blocks (trees, buildings); see [Customization](#customization)
+- `MIN_ALTITUDE` - Drop targets peaking below this altitude (default: 30°)
+- `PRIME_END_HOUR` - Attended-imaging cutoff for the prime-time bonus (default: 23 = 11 PM)
 - `TYPE_WEIGHTS` - Object type preference (default favors galaxies, mostly ignores clusters)
 - `MIN_TARGET_SCORE` - Minimum score to show targets (default: 6/10)
-- `TOP_TARGETS_COUNT` - Targets per notification section (default: 8)
+- `TOP_TARGETS_COUNT` - Targets per notification section (default: 5; ties with the last slot are kept)
 
 **3. Install ntfy app and subscribe to your topic**
 
@@ -68,11 +70,18 @@ Targets scored 0-10 based on tonight's conditions (6+ threshold):
 | Type | 1.5 | Galaxy = 1.5, Nebula = 1.0, Cluster = 0.2 |
 | Difficulty | 1.0 | Easy = 1.0, Medium = 0.8, Hard = 0.5 |
 | FOV Fit | 0.5 | How well target fits DWARF3's 3° FOV (0.3-2.0° optimal) |
-| Prime Time | 0.5 | Full bonus if it peaks before midnight, -0.15/hour after |
+| Prime Time | 0.5 | Full bonus if it peaks before the `PRIME_END_HOUR` cutoff, -0.15/hour after |
 
 **Key features:**
-- The observing window runs from darkness (sunset + 2h) to dawn — late peaks are
-  never dropped, just weighted toward before-midnight and grouped separately
+- The observing window runs from astronomical darkness (sun 18° below the
+  horizon) to astronomical dawn — late peaks are never dropped, just weighted
+  toward before-midnight and grouped separately
+- A target that reaches 80%+ of its peak altitude by the prime cutoff (and is
+  unblocked there) counts as a before-midnight target, evaluated at the cutoff —
+  "Overnight" is reserved for targets where leaving the scope out actually buys
+  real altitude
+- Targets whose peak lands behind a `HORIZON_MASK` wedge or below `MIN_ALTITUDE`
+  are dropped entirely, not penalized — a blocked target is not a weak target
 - Moon interference is computed at each target's peak time, so a moonrise at 2 AM
   only penalizes the targets that actually peak after 2 AM
 - Setting targets are scored at the start of the window (their highest point),
@@ -103,6 +112,15 @@ Targets scored 0-10 based on tonight's conditions (6+ threshold):
 
 ## Customization
 
+**Local horizon** - `HORIZON_MASK` in `config.py` is a list of
+`(az_start, az_end, min_alt_deg)` wedges describing sky your site can't see.
+A target peaking inside a wedge below its minimum altitude is dropped from the
+recommendations entirely. Azimuth ranges may wrap through north — `(340, 20, 35)`
+is valid. Set `[]` if your whole horizon is clear. The default,
+`[(250, 340, 90)]`, blocks the WNW-NW sky (the author's house). As an env var:
+`HORIZON_MASK="250-340:90,340-20:35"`. `MIN_ALTITUDE` (default 30°) is a global
+floor applied everywhere, masked or not.
+
 **Object preferences** - Adjust `TYPE_WEIGHTS` in `config.py` (points out of 10)
 
 **Later prime cutoff** - Set `PRIME_END_HOUR = 25` for a 1 AM cutoff
@@ -120,6 +138,7 @@ Targets scored 0-10 based on tonight's conditions (6+ threshold):
 **Wrong targets?**
 - Check `LATITUDE`/`LONGITUDE` are correct
 - Targets are scored at their peak altitude during the night, not at sunset
+- Missing a target you expected? It may be dropped by `HORIZON_MASK` or `MIN_ALTITUDE`
 
 ---
 

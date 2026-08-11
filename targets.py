@@ -4,11 +4,12 @@ import ephem
 
 from astro import fmt_time, get_night, make_observer, to_deg
 from config import (
-    DWARF3_OPTIMAL_TARGET_MAX, DWARF3_OPTIMAL_TARGET_MIN,
-    LATE_PENALTY_PER_HOUR, MIN_TARGET_SCORE, TYPE_WEIGHTS,
+    DWARF3_OPTIMAL_TARGET_MAX, DWARF3_OPTIMAL_TARGET_MIN, HORIZON_MASK,
+    LATE_PENALTY_PER_HOUR, MIN_ALTITUDE, MIN_TARGET_SCORE, TYPE_WEIGHTS,
 )
 
 PRIME_BONUS = 0.5  # points available for peaking before the prime cutoff
+PRIME_USABLE_FRACTION = 0.8  # at the cutoff, this fraction of peak altitude counts as "already there"
 
 # DWARF3-optimized catalog (telephoto ~3° x 1.65° FOV)
 # Organized by season (when best visible in evening)
@@ -157,6 +158,15 @@ def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dic
     target.compute(obs)
 
     best_time = _best_time_in_window(obs, target, night)
+    if best_time > night["prime_end"]:
+        # A target already near peak height (and unblocked) at the prime
+        # cutoff can be shot attended - only group it overnight if waiting
+        # up past the cutoff actually buys real altitude
+        peak_alt = _altitude_at(target, best_time)
+        target.compute(make_observer(night["prime_end"]))
+        prime_alt, prime_az = to_deg(target.alt), to_deg(target.az)
+        if _shootable_by_cutoff(prime_alt, prime_az, peak_alt):
+            best_time = night["prime_end"]
     obs_best = make_observer(best_time)
     target.compute(obs_best)
     altitude = to_deg(target.alt)
@@ -185,6 +195,31 @@ def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dic
         "moon_phase": moon.phase,
         "size_deg": size_deg,
     }
+
+
+def _in_wedge(az: float, az_start: float, az_end: float) -> bool:
+    if az_start <= az_end:
+        return az_start <= az <= az_end
+    return az >= az_start or az <= az_end  # wedge wraps through north
+
+
+def is_blocked(altitude: float, azimuth: float, mask=None, min_altitude=None) -> bool:
+    """True if the local horizon hides this sky position: below the global
+    MIN_ALTITUDE floor, or inside a HORIZON_MASK wedge under its minimum."""
+    mask = HORIZON_MASK if mask is None else mask
+    floor = MIN_ALTITUDE if min_altitude is None else min_altitude
+    if altitude < floor:
+        return True
+    return any(_in_wedge(azimuth, az_start, az_end) and altitude < min_alt
+               for az_start, az_end, min_alt in mask)
+
+
+def _shootable_by_cutoff(prime_alt: float, prime_az: float, peak_alt: float,
+                         mask=None, min_altitude=None) -> bool:
+    """True if a late-peaking target is close enough to its peak, and
+    unblocked, at the prime cutoff to count as a before-midnight target."""
+    return (prime_alt >= PRIME_USABLE_FRACTION * peak_alt
+            and not is_blocked(prime_alt, prime_az, mask, min_altitude))
 
 
 def score_target(t: dict) -> float:
@@ -262,6 +297,10 @@ def get_recommendations(night: dict = None) -> list:
     targets = []
     for name, ra, dec, obj_type, difficulty, size_deg in DSO_CATALOG:
         t = evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night)
+        # A target the local horizon blocks at its peak isn't a weak pick,
+        # it's not a pick at all — drop it before any score filtering
+        if is_blocked(t["altitude"], t["azimuth"]):
+            continue
         t["score"] = score_target(t)
         targets.append(t)
 
