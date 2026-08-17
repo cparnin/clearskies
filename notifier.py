@@ -3,15 +3,18 @@
 import requests
 from config import NTFY_TOPIC
 
-NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
+NTFY_URL = "https://ntfy.sh"
 
 
 def send_notification(title: str, message: str, priority: str = "default") -> bool:
     """Send a push notification via ntfy.sh.
 
+    Uses the JSON publish endpoint - HTTP headers are latin-1 only, which
+    chokes on em dashes and emoji in the title; JSON fields are full UTF-8.
+
     Args:
         title: Notification title
-        message: Notification body
+        message: Notification body (ntfy Markdown)
         priority: min, low, default, high, urgent
 
     Returns:
@@ -20,11 +23,13 @@ def send_notification(title: str, message: str, priority: str = "default") -> bo
     try:
         response = requests.post(
             NTFY_URL,
-            data=message.encode("utf-8"),
-            headers={
-                "Title": title,
-                "Priority": priority,
-                "Tags": "telescope,milky_way",
+            json={
+                "topic": NTFY_TOPIC,
+                "title": title,
+                "message": message,
+                "priority": {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}[priority],
+                "tags": ["telescope"],
+                "markdown": True,
             },
             timeout=30,
         )

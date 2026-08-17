@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from astro import LOCAL_TZ, get_night, local_to_ephem
 from config import _parse_horizon_mask
-from main import assess_conditions, effective_night, find_clear_stretch, top_with_ties
+from main import assess_conditions, display_name, effective_night, find_clear_stretch
 from targets import DSO_CATALOG, _shootable_by_cutoff, is_blocked, score_target
 
 passed = 0
@@ -77,11 +77,12 @@ check("blocked at cutoff stays overnight",
 check("below floor at cutoff stays overnight",
       not _shootable_by_cutoff(25.0, 90.0, 28.0, mask=[], min_altitude=30.0))
 
-print("top with ties:")
-ranked = [{"score": s} for s in (9.5, 9.3, 9.3, 9.0, 8.8, 8.8, 8.7)]
-check("cuts at count when no tie at the edge", len(top_with_ties(ranked, 4)) == 4)
-check("tie at the last slot extends the list", len(top_with_ties(ranked, 5)) == 6)
-check("short list passes through", top_with_ties(ranked, 10) == ranked)
+print("display names:")
+check("catalog prefix dropped", display_name("M8 - Lagoon Nebula") == "Lagoon Nebula")
+check("NGC prefix dropped", display_name("NGC 2174 - Monkey Head") == "Monkey Head")
+check("descriptive suffix kept", display_name("Veil Nebula - East") == "Veil Nebula - East")
+check("bare designations kept", display_name("M77 + NGC 1055") == "M77 + NGC 1055")
+check("plain name unchanged", display_name("Iris Nebula") == "Iris Nebula")
 
 print("clear stretch:")
 check("finds the clear run", [h["cloud_cover"] for h in find_clear_stretch(fake_hours([90, 10, 5, 10, 95]))] == [10, 5, 10])

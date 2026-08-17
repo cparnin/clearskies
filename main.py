@@ -1,5 +1,6 @@
 """ClearSkies - Main orchestrator."""
 
+import re
 import sys
 from datetime import timedelta
 
@@ -114,13 +115,29 @@ def assess_conditions(weather: dict, moon: dict, stretch: list | None) -> tuple[
     return score, summary
 
 
-def top_with_ties(ranked: list, count: int) -> list:
-    """First `count` of a score-sorted list, extended through any targets
-    tied with the last slot - a tie shouldn't be broken by list order."""
-    if len(ranked) <= count:
-        return ranked
-    cutoff = ranked[count - 1]["score"]
-    return [t for t in ranked if t["score"] >= cutoff]
+_CATALOG_PREFIX = re.compile(r"^(M|NGC|IC|Sh2|B|C|Cr|Mel)[\s-]*\d")
+
+
+def display_name(name: str) -> str:
+    """Notification-friendly target name: drop a leading catalog designation
+    ("M8 - Lagoon Nebula" -> "Lagoon Nebula") but keep descriptive suffixes
+    ("Veil Nebula - East") and bare designations ("M77 + NGC 1055") intact."""
+    prefix, sep, rest = name.partition(" - ")
+    if sep and rest and _CATALOG_PREFIX.match(prefix):
+        return rest
+    return name
+
+
+def moon_emoji(phase_pct: float) -> str:
+    if phase_pct < 5:
+        return "🌑"
+    if phase_pct < 45:
+        return "🌒"
+    if phase_pct < 55:
+        return "🌓"
+    if phase_pct < 95:
+        return "🌔"
+    return "🌕"
 
 
 def get_priority(conditions_score: int, best_target_score: float) -> str:
@@ -135,29 +152,33 @@ def get_priority(conditions_score: int, best_target_score: float) -> str:
 
 def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dict,
                   prime: list, late: list) -> str:
-    lines = [conditions_summary]
-    lines.append(f"Dark: {fmt_time(night['window_start'])} - {fmt_time(night['window_end'])}")
-    if imaging["window_start"] != night["window_start"] or imaging["window_end"] != night["window_end"]:
-        lines.append(f"Clear: {fmt_time(imaging['window_start'])} - {fmt_time(imaging['window_end'])}")
+    """Body is ntfy Markdown: bold section headers render on Android/web."""
+    sky = "✨" if conditions_summary == "Excellent conditions!" else "🌤️"
+    lines = [f"{sky} {conditions_summary}"]
 
-    moon_line = f"Moon: {moon['phase_name']} ({moon['phase_pct']:.0f}%)"
+    moon_line = f"{moon_emoji(moon['phase_pct'])} {moon['phase_name']} {moon['phase_pct']:.0f}%"
     if moon["is_up"] and moon["setting"]:
         moon_line += f", sets {moon['setting']}"
     elif not moon["is_up"] and moon["rising"]:
         moon_line += f", rises {moon['rising']}"
     lines.append(moon_line)
 
+    window = f"🕐 Dark {fmt_time(night['window_start'])}–{fmt_time(night['window_end'])}"
+    if imaging["window_start"] != night["window_start"] or imaging["window_end"] != night["window_end"]:
+        window += f" · Clear {fmt_time(imaging['window_start'])}–{fmt_time(imaging['window_end'])}"
+    lines.append(window)
+
     if prime:
         lines.append("")
-        lines.append(f"By {fmt_time(night['prime_end'])}:")
+        lines.append(f"**🔭 By {fmt_time(night['prime_end'])}**")
         for t in prime:
-            lines.append(f"- {t['name']} [{t['score']}] peak {t['peak_time']} @ {t['altitude']:.0f}°")
+            lines.append(f"• {display_name(t['name'])} — peak {t['peak_time']}")
 
     if late:
         lines.append("")
-        lines.append("Overnight (leave it out):")
+        lines.append("**🌙 Overnight (leave it out)**")
         for t in late:
-            lines.append(f"- {t['name']} [{t['score']}] peak {t['peak_time']} @ {t['altitude']:.0f}°")
+            lines.append(f"• {display_name(t['name'])} — peak {t['peak_time']}")
 
     return "\n".join(lines)
 
@@ -180,8 +201,8 @@ def run(dry_run: bool = False):
     conditions_score, conditions_summary = assess_conditions(weather, moon, stretch)
 
     good = [t for t in targets if t["score"] >= MIN_TARGET_SCORE]
-    prime = top_with_ties([t for t in good if not t["is_late"]], TOP_TARGETS_COUNT)
-    late = top_with_ties([t for t in good if t["is_late"]], TOP_TARGETS_COUNT)
+    prime = [t for t in good if not t["is_late"]][:TOP_TARGETS_COUNT]
+    late = [t for t in good if t["is_late"]][:TOP_TARGETS_COUNT]
 
     if conditions_score < MIN_CONDITIONS_SCORE:
         print(f"Conditions poor ({conditions_score}/10): {conditions_summary}")
@@ -193,7 +214,10 @@ def run(dry_run: bool = False):
         print("No notification sent.")
         return
 
-    title = f"ClearSkies [{conditions_score}/10]"
+    quality = ("Excellent" if conditions_score >= 9 else
+               "Great" if conditions_score >= 8 else
+               "Good" if conditions_score >= 7 else "Fair")
+    title = f"{quality} night for imaging — {conditions_score}/10"
     message = build_message(conditions_summary, night, imaging, moon, prime, late)
     priority = get_priority(conditions_score, good[0]["score"])
 

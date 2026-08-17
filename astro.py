@@ -22,7 +22,8 @@ def to_deg(radians) -> float:
 
 
 def fmt_time(ephem_date) -> str:
-    return ephem_to_local(ephem_date).strftime("%-I:%M %p")
+    # "11:00 PM" reads as "11 PM"; on-the-hour times don't need minutes
+    return ephem_to_local(ephem_date).strftime("%-I:%M %p").replace(":00 ", " ")
 
 
 def make_observer(date=None) -> ephem.Observer:
