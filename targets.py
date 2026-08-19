@@ -131,6 +131,26 @@ DSO_CATALOG = [
 ]
 
 
+# Bucket-list nebulae that score at full galaxy weight instead of the
+# ordinary-nebula weight. Everything else nebulous ranks a point lower, so the
+# list stays galaxy-heavy without ever hiding the icons. Names must match
+# DSO_CATALOG exactly.
+SHOWPIECES = {
+    "M42 - Orion Nebula",
+    "IC 434 - Horsehead Region",
+    "Rosette Nebula",
+    "M8 - Lagoon Nebula",
+    "M20 - Trifid Nebula",
+    "M16 - Eagle Nebula",
+    "Veil Nebula - East",
+    "Veil Nebula - West",
+    "NGC 7000 - North America",
+    "Heart Nebula",
+    "Soul Nebula",
+    "Helix Nebula",
+}
+
+
 def _altitude_at(target: ephem.FixedBody, date) -> float:
     target.compute(make_observer(date))
     return to_deg(target.alt)
@@ -265,8 +285,11 @@ def score_target(t: dict) -> float:
         elif phase < 75:
             moon_score += 0.15
 
-    # Type (0-1.5): galaxies favored, clusters mostly ignored
+    # Type (0-1.5): galaxies favored, clusters mostly ignored; showpiece
+    # nebulae are promoted to galaxy weight so the icons stay in the running
     type_score = TYPE_WEIGHTS.get(t["type"], 0.5)
+    if t["name"] in SHOWPIECES:
+        type_score = max(type_score, TYPE_WEIGHTS["galaxy"])
 
     # Difficulty (0-1.0)
     diff_score = {"easy": 1.0, "medium": 0.8, "hard": 0.5}.get(t["difficulty"], 0.7)
@@ -304,7 +327,9 @@ def get_recommendations(night: dict = None) -> list:
         t["score"] = score_target(t)
         targets.append(t)
 
-    targets.sort(key=lambda x: x["score"], reverse=True)
+    # Ties go to the galaxy - a showpiece nebula matches galaxy weight but
+    # shouldn't push an equal-scoring galaxy out of the notification's top 3
+    targets.sort(key=lambda x: (x["score"], x["type"] == "galaxy"), reverse=True)
     return targets
 
 

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from astro import LOCAL_TZ, get_night, local_to_ephem
 from config import _parse_horizon_mask
 from main import assess_conditions, display_name, effective_night, find_clear_stretch
-from targets import DSO_CATALOG, _shootable_by_cutoff, is_blocked, score_target
+from targets import DSO_CATALOG, SHOWPIECES, _shootable_by_cutoff, is_blocked, score_target
 
 passed = 0
 
@@ -27,9 +27,9 @@ def fake_hours(clouds, start=base):
 
 
 def fake_target(**overrides):
-    t = {"visible": True, "altitude": 50.0, "moon_up": False, "moon_separation": 120.0,
-         "moon_phase": 0.0, "type": "galaxy", "difficulty": "easy", "size_deg": 1.0,
-         "hours_late": 0.0}
+    t = {"name": "Test Target", "visible": True, "altitude": 50.0, "moon_up": False,
+         "moon_separation": 120.0, "moon_phase": 0.0, "type": "galaxy", "difficulty": "easy",
+         "size_deg": 1.0, "hours_late": 0.0}
     t.update(overrides)
     return t
 
@@ -39,11 +39,14 @@ check("all entries are 6-tuples", all(len(e) == 6 for e in DSO_CATALOG))
 check("known types only", {e[3] for e in DSO_CATALOG} == {"nebula", "galaxy", "cluster"})
 check("known difficulties only", {e[4] for e in DSO_CATALOG} <= {"easy", "medium", "hard"})
 check("no duplicate names", len({e[0] for e in DSO_CATALOG}) == len(DSO_CATALOG))
+check("showpieces all exist in catalog", SHOWPIECES <= {e[0] for e in DSO_CATALOG})
 
 print("scoring:")
 check("perfect galaxy scores 10", score_target(fake_target()) == 10.0)
 check("cluster penalized vs galaxy", score_target(fake_target(type="cluster")) == 8.7)
-check("nebula between", score_target(fake_target(type="nebula")) == 9.5)
+check("ordinary nebula a point behind galaxy", score_target(fake_target(type="nebula")) == 9.0)
+check("showpiece nebula scores at galaxy weight",
+      score_target(fake_target(name="M42 - Orion Nebula", type="nebula")) == 10.0)
 check("late peak decays", score_target(fake_target(hours_late=2.0)) == 9.7)
 check("very late loses full prime bonus", score_target(fake_target(hours_late=8.0)) == 9.5)
 check("full moon nearby is heavily penalized",

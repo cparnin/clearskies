@@ -46,8 +46,10 @@ PRIME_END_HOUR = 23           # 23 = 11 PM, 24 = midnight, 25 = 1 AM
 LATE_PENALTY_PER_HOUR = 0.15  # score decay per hour a peak lands past prime
 
 # Object type preference (points out of 10):
-# galaxies favored, nebulae close behind, clusters mostly ignored.
-TYPE_WEIGHTS = {"galaxy": 1.5, "nebula": 1.0, "cluster": 0.2}
+# galaxies strongly favored, ordinary nebulae a full point behind, clusters
+# mostly ignored. Showpiece nebulae (SHOWPIECES in targets.py) are exempt -
+# they score at full galaxy weight so the icons still make the list.
+TYPE_WEIGHTS = {"galaxy": 1.5, "nebula": 0.5, "cluster": 0.2}
 
 # Local horizon: targets peaking below MIN_ALTITUDE, or inside a HORIZON_MASK
 # wedge and under that wedge's minimum altitude, are dropped entirely — a
