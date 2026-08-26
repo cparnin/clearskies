@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import ephem
 
-from astro import ephem_to_local, fmt_time, get_night, local_to_ephem
+from astro import ephem_to_local, fmt_time, get_night, local_to_ephem, make_observer, to_deg
 from config import MIN_CONDITIONS_SCORE, MIN_TARGET_SCORE, TOP_TARGETS_COUNT
 from moon import get_moon_info
 from notifier import send_notification
@@ -46,7 +46,15 @@ def effective_night(night: dict, stretch: list | None) -> dict:
     return eff
 
 
-def assess_conditions(weather: dict, moon: dict, stretch: list | None) -> tuple[int, str]:
+def moonlit_fraction(hours: list) -> float:
+    """Fraction of the given forecast hours during which the moon is up."""
+    def moon_up(t):
+        return to_deg(ephem.Moon(make_observer(local_to_ephem(t))).alt) > 0
+    return sum(moon_up(h["time"]) for h in hours) / len(hours)
+
+
+def assess_conditions(weather: dict, moon: dict, stretch: list | None,
+                      moonlit: float) -> tuple[int, str]:
     """Score overall conditions 1-10 and return a summary.
 
     Scores the best clear stretch of the night rather than a single evening
@@ -96,12 +104,16 @@ def assess_conditions(weather: dict, moon: dict, stretch: list | None) -> tuple[
         score -= 1
         issues.append(f"Breezy ({wind:.0f} mph)")
 
-    if moon["phase_pct"] > 75 and moon["interferes_tonight"]:
-        score -= 2
-        issues.append(f"Bright moon ({moon['phase_pct']:.0f}%)")
-    elif moon["phase_pct"] > 50 and moon["interferes_tonight"]:
-        score -= 1
-        issues.append(f"Moon up ({moon['phase_pct']:.0f}%)")
+    # Moon: phase-scaled penalty, weighted by how much of the usable stretch
+    # is moonlit. A bright moon washes out broadband targets (galaxies
+    # especially), so a full moon up all night kills the night outright —
+    # but one that sets early barely dings it.
+    phase = moon["phase_pct"]
+    moon_penalty = round((5 if phase > 80 else 3 if phase > 50 else 1 if phase > 25 else 0) * moonlit)
+    if moon_penalty:
+        score -= moon_penalty
+        label = "Bright moon" if phase > 80 else "Moon up"
+        issues.append(f"{label} ({phase:.0f}%)")
 
     # Timing notes when only part of the night is clear
     if not all_night:
@@ -151,7 +163,7 @@ def get_priority(conditions_score: int, best_target_score: float) -> str:
 
 
 def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dict,
-                  prime: list, late: list) -> str:
+                  top: list) -> str:
     """Body is ntfy Markdown: bold section headers render on Android/web."""
     sky = "✨" if conditions_summary == "Excellent conditions!" else "🌤️"
     lines = [f"{sky} {conditions_summary}"]
@@ -168,17 +180,13 @@ def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dic
         window += f" · Clear {fmt_time(imaging['window_start'])}–{fmt_time(imaging['window_end'])}"
     lines.append(window)
 
-    if prime:
-        lines.append("")
-        lines.append(f"**🔭 By {fmt_time(night['prime_end'])}**")
-        for t in prime:
-            lines.append(f"• {display_name(t['name'])} — peak {t['peak_time']}")
-
-    if late:
-        lines.append("")
-        lines.append("**🌙 Overnight (leave it out)**")
-        for t in late:
-            lines.append(f"• {display_name(t['name'])} — peak {t['peak_time']}")
+    lines.append("")
+    lines.append("**🔭 Shoot tonight**")
+    for t in top:
+        line = f"• {display_name(t['name'])} — peak {t['peak_time']}"
+        if t["is_late"]:
+            line += " (overnight, leave it out)"
+        lines.append(line)
 
     return "\n".join(lines)
 
@@ -198,18 +206,17 @@ def run(dry_run: bool = False):
     imaging = effective_night(night, stretch)
     targets = get_recommendations(imaging)
 
-    conditions_score, conditions_summary = assess_conditions(weather, moon, stretch)
+    moonlit = moonlit_fraction(stretch or weather["hours"])
+    conditions_score, conditions_summary = assess_conditions(weather, moon, stretch, moonlit)
 
-    good = [t for t in targets if t["score"] >= MIN_TARGET_SCORE]
-    prime = [t for t in good if not t["is_late"]][:TOP_TARGETS_COUNT]
-    late = [t for t in good if t["is_late"]][:TOP_TARGETS_COUNT]
+    top = [t for t in targets if t["score"] >= MIN_TARGET_SCORE][:TOP_TARGETS_COUNT]
 
     if conditions_score < MIN_CONDITIONS_SCORE:
         print(f"Conditions poor ({conditions_score}/10): {conditions_summary}")
         print("No notification sent.")
         return
 
-    if not prime and not late:
+    if not top:
         print(f"No targets scoring {MIN_TARGET_SCORE}+ tonight.")
         print("No notification sent.")
         return
@@ -218,8 +225,8 @@ def run(dry_run: bool = False):
                "Great" if conditions_score >= 8 else
                "Good" if conditions_score >= 7 else "Fair")
     title = f"{quality} night for imaging — {conditions_score}/10"
-    message = build_message(conditions_summary, night, imaging, moon, prime, late)
-    priority = get_priority(conditions_score, good[0]["score"])
+    message = build_message(conditions_summary, night, imaging, moon, top)
+    priority = get_priority(conditions_score, top[0]["score"])
 
     print(f"=== {title} (priority: {priority}) ===")
     print(message)

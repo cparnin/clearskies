@@ -13,8 +13,8 @@ OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 def get_weather(night: dict = None) -> dict | None:
     """Fetch hourly forecast covering tonight's observing window.
 
-    Returns a dict with `hours` (one sample per hour across the window) plus
-    the first hour's values at the top level for convenience, or None on failure.
+    Returns a dict with `hours` (one sample per hour across the window),
+    or None on failure.
     """
     night = night or get_night()
 
@@ -59,16 +59,7 @@ def get_weather(night: dict = None) -> dict | None:
         print("Weather: no forecast hours matched tonight's window")
         return None
 
-    evening = samples[0]
-    return {
-        "hours": samples,
-        "cloud_cover": evening["cloud_cover"],
-        "humidity": evening["humidity"],
-        "wind_mph": evening["wind_mph"],
-        "temperature_f": evening["temperature_f"],
-        "visibility_mi": evening["visibility_mi"],
-        "forecast_hour": evening["time"].isoformat(),
-    }
+    return {"hours": samples}
 
 
 if __name__ == "__main__":

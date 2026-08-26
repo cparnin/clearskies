@@ -24,7 +24,7 @@ Optional:
 - `PRIME_END_HOUR` - Attended-imaging cutoff for the prime-time bonus (default: 23 = 11 PM)
 - `TYPE_WEIGHTS` - Object type preference (default favors galaxies, mostly ignores clusters)
 - `MIN_TARGET_SCORE` - Minimum score to show targets (default: 6/10)
-- `TOP_TARGETS_COUNT` - Targets per notification section (default: 5; ties with the last slot are kept)
+- `TOP_TARGETS_COUNT` - Targets per notification (default: 3)
 
 **3. Install ntfy app and subscribe to your topic**
 
@@ -47,9 +47,14 @@ Runs daily at 4/5 PM ET (GitHub Actions), evaluates:
 - 89 deep sky targets scored on their peak altitude between astronomical darkness
   (sun 18° below the horizon) and astronomical dawn
 
-Sends a push notification if conditions score 6+ and good targets exist. Targets are
-split into two sections: peaking **before midnight** (attended imaging) and
-**overnight** (set up the DWARF3 and leave it out).
+Sends a push notification if conditions score 6+ and good targets exist, listing
+the **top 3 targets** for the night. Targets peaking after the prime cutoff are
+tagged "(overnight, leave it out)".
+
+The moon is a first-class gate: the conditions penalty scales with phase *and*
+with how much of the clear stretch is moonlit. A bright moon (>80%) up all night
+costs 5 points — enough to suppress the notification on its own — while one
+that sets early in the stretch barely registers. Full-moon nights stay silent.
 
 Targets are scored against the hours the sky is actually clear: if the evening is
 cloudy but it clears at 1 AM, the notification says so ("clears ~1 AM", with a
@@ -66,8 +71,8 @@ Targets scored 0-10 based on tonight's conditions (6+ threshold):
 | Component | Points | Description |
 |-----------|--------|-------------|
 | Altitude | 3.0 | Peak altitude within the night (30-75° optimal) |
-| Moon | 3.5 | Separation + phase, evaluated at the target's peak time (moon down = max) |
-| Type | 1.5 | Galaxy = 1.5, Nebula = 1.0, Cluster = 0.2 |
+| Moon | 3.5 | Phase-first, evaluated at the target's peak time (moon down = max; separation only softens a bright moon, never rescues it) |
+| Type | 1.5 | Galaxy = 1.5, Nebula = 0.5 (showpieces = 1.5), Cluster = 0.2 |
 | Difficulty | 1.0 | Easy = 1.0, Medium = 0.8, Hard = 0.5 |
 | FOV Fit | 0.5 | How well target fits DWARF3's 3° FOV (0.3-2.0° optimal) |
 | Prime Time | 0.5 | Full bonus if it peaks before the `PRIME_END_HOUR` cutoff, -0.15/hour after |
@@ -75,11 +80,11 @@ Targets scored 0-10 based on tonight's conditions (6+ threshold):
 **Key features:**
 - The observing window runs from astronomical darkness (sun 18° below the
   horizon) to astronomical dawn — late peaks are never dropped, just weighted
-  toward before-midnight and grouped separately
+  toward before-midnight and tagged "(overnight)"
 - A target that reaches 80%+ of its peak altitude by the prime cutoff (and is
   unblocked there) counts as a before-midnight target, evaluated at the cutoff —
-  "Overnight" is reserved for targets where leaving the scope out actually buys
-  real altitude
+  the overnight tag is reserved for targets where leaving the scope out actually
+  buys real altitude
 - Targets whose peak lands behind a `HORIZON_MASK` wedge or below `MIN_ALTITUDE`
   are dropped entirely, not penalized — a blocked target is not a weak target
 - Moon interference is computed at each target's peak time, so a moonrise at 2 AM

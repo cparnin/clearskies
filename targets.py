@@ -263,27 +263,28 @@ def score_target(t: dict) -> float:
     else:
         alt_score = 0.5 + (alt - 15) * 0.1
 
-    # Moon (0-3.5), evaluated at the target's peak time
+    # Moon (0-3.5), evaluated at the target's peak time. Phase dominates:
+    # a bright moon washes out the whole sky for broadband imaging, so
+    # separation only softens the blow — it can't rescue a full-moon night.
     if not t["moon_up"]:
         moon_score = 3.5  # Moon below horizon = perfect
     else:
-        sep = t["moon_separation"]
-        if sep >= 90:
-            moon_score = 3.0
-        elif sep >= 60:
-            moon_score = 2.4
-        elif sep >= 30:
+        phase, sep = t["moon_phase"], t["moon_separation"]
+        if phase >= 75:
+            moon_score = 0.4
+        elif phase >= 50:
             moon_score = 1.2
+        elif phase >= 25:
+            moon_score = 2.0
         else:
-            moon_score = 0.5
-        # Phase kicker: a dim moon (or a distant one) hurts much less
-        phase = t["moon_phase"]
-        if sep >= 60 or phase < 25:
-            moon_score += 0.5
-        elif phase < 50:
-            moon_score += 0.35
-        elif phase < 75:
-            moon_score += 0.15
+            moon_score = 2.8
+        if sep >= 90:
+            moon_score += 0.7
+        elif sep >= 60:
+            moon_score += 0.4
+        elif sep < 30:
+            moon_score -= 0.4
+        moon_score = max(0.0, min(3.5, moon_score))
 
     # Type (0-1.5): galaxies favored, clusters mostly ignored; showpiece
     # nebulae are promoted to galaxy weight so the icons stay in the running
@@ -345,13 +346,8 @@ if __name__ == "__main__":
         print(f"No targets scoring {MIN_TARGET_SCORE}+ tonight. Best available:")
         good = [t for t in targets if t["visible"]][:5]
 
-    for section, label in ((False, "PRIME (before cutoff)"), (True, "OVERNIGHT (leave it out)")):
-        picks = [t for t in good if t["is_late"] == section]
-        if not picks:
-            continue
-        print(f"--- {label} ---")
-        for i, t in enumerate(picks[:10], 1):
-            moon_note = f"moon {t['moon_separation']:.0f}° away" if t["moon_up"] else "moon down"
-            print(f"{i:2}. {t['name']} [{t['score']}/10]")
-            print(f"     {t['type']}, peak {t['peak_time']} @ {t['altitude']}°, {moon_note}")
-        print()
+    for i, t in enumerate(good[:10], 1):
+        moon_note = f"moon {t['moon_separation']:.0f}° away" if t["moon_up"] else "moon down"
+        late_note = " (overnight)" if t["is_late"] else ""
+        print(f"{i:2}. {t['name']} [{t['score']}/10]{late_note}")
+        print(f"     {t['type']}, peak {t['peak_time']} @ {t['altitude']}°, {moon_note}")

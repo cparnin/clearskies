@@ -42,8 +42,6 @@ def get_moon_info(night: dict = None) -> dict:
         "is_up": altitude_deg > 0,
         "rising": fmt_time(rising) if rising else None,
         "setting": fmt_time(setting) if setting else None,
-        # True if the moon rises (or is already up) before the window ends
-        "interferes_tonight": altitude_deg > 0 or (rising is not None and rising < night["window_end"]),
         "window_start": fmt_time(night["window_start"]),
         "window_end": fmt_time(night["window_end"]),
     }
@@ -57,4 +55,3 @@ if __name__ == "__main__":
     print(f"Altitude: {info['altitude_deg']}° ({'up' if info['is_up'] else 'down'})")
     print(f"Next rise: {info['rising'] or 'n/a'}")
     print(f"Next set: {info['setting'] or 'n/a'}")
-    print(f"Interferes tonight: {info['interferes_tonight']}")

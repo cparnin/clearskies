@@ -64,7 +64,7 @@ HORIZON_MASK = _parse_horizon_mask(os.environ.get("HORIZON_MASK") or "250-340:90
 # Scoring thresholds - adjust to be more or less picky
 MIN_TARGET_SCORE = 6      # Only show targets scoring 6+ out of 10
 MIN_CONDITIONS_SCORE = 6  # Only notify if conditions score 6+ out of 10
-TOP_TARGETS_COUNT = 3     # Max targets per notification section (hard cap)
+TOP_TARGETS_COUNT = 3     # Targets per notification (hard cap)
 
 # DWARF3 telescope specifications (for FOV fit scoring)
 # Only change these if you're using different equipment

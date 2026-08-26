@@ -50,7 +50,11 @@ check("showpiece nebula scores at galaxy weight",
 check("late peak decays", score_target(fake_target(hours_late=2.0)) == 9.7)
 check("very late loses full prime bonus", score_target(fake_target(hours_late=8.0)) == 9.5)
 check("full moon nearby is heavily penalized",
-      score_target(fake_target(moon_up=True, moon_separation=25.0, moon_phase=95.0)) <= 7.5)
+      score_target(fake_target(moon_up=True, moon_separation=25.0, moon_phase=95.0)) == 6.5)
+check("separation can't rescue a full moon",
+      score_target(fake_target(moon_up=True, moon_separation=120.0, moon_phase=95.0)) <= 7.6)
+check("crescent moon far away barely hurts",
+      score_target(fake_target(moon_up=True, moon_separation=120.0, moon_phase=15.0)) == 10.0)
 check("moon down beats bright moon nearby",
       score_target(fake_target()) > score_target(fake_target(moon_up=True, moon_separation=25.0, moon_phase=95.0)))
 check("invisible target scores 0", score_target(fake_target(visible=False)) == 0.0)
@@ -94,23 +98,30 @@ check("single clear hour is not a stretch", find_clear_stretch(fake_hours([90, 1
 
 print("conditions:")
 moon_dark = {"phase_pct": 2.0, "phase_name": "New Moon", "is_up": False,
-             "rising": None, "setting": None, "interferes_tonight": False}
+             "rising": None, "setting": None}
 hours = fake_hours([5, 10, 5, 0, 10, 5])
-s, msg = assess_conditions({"hours": hours}, moon_dark, find_clear_stretch(hours))
-check("clear night scores 10", s == 10, f"got {s}: {msg}")
+s, msg = assess_conditions({"hours": hours}, moon_dark, find_clear_stretch(hours), moonlit=1.0)
+check("new moon up all night still scores 10", s == 10, f"got {s}: {msg}")
 
 hours = fake_hours([95, 90, 10, 5, 5, 10])
-s, msg = assess_conditions({"hours": hours}, moon_dark, find_clear_stretch(hours))
+s, msg = assess_conditions({"hours": hours}, moon_dark, find_clear_stretch(hours), moonlit=0.0)
 check("late clearing still scores high", s >= 9 and "clears" in msg, f"got {s}: {msg}")
 
 hours = fake_hours([100] * 6)
-s, msg = assess_conditions({"hours": hours}, moon_dark, find_clear_stretch(hours))
+s, msg = assess_conditions({"hours": hours}, moon_dark, find_clear_stretch(hours), moonlit=0.0)
 check("socked-in night fails threshold", s < 6, f"got {s}: {msg}")
 
-moon_full = dict(moon_dark, phase_pct=95.0, is_up=True, interferes_tonight=True)
+moon_full = dict(moon_dark, phase_pct=95.0, is_up=True)
 hours = fake_hours([5] * 6)
-s, msg = assess_conditions({"hours": hours}, moon_full, find_clear_stretch(hours))
-check("bright moon dings the score", s == 8, f"got {s}: {msg}")
+s, msg = assess_conditions({"hours": hours}, moon_full, find_clear_stretch(hours), moonlit=1.0)
+check("full moon up all night kills the night", s < 6, f"got {s}: {msg}")
+
+s, msg = assess_conditions({"hours": hours}, moon_full, find_clear_stretch(hours), moonlit=0.2)
+check("full moon that sets early barely dings", s == 9, f"got {s}: {msg}")
+
+moon_half = dict(moon_dark, phase_pct=55.0, is_up=True)
+s, msg = assess_conditions({"hours": hours}, moon_half, find_clear_stretch(hours), moonlit=1.0)
+check("half moon dings but doesn't kill", s == 7, f"got {s}: {msg}")
 
 print("window clamping:")
 night = {"window_start": local_to_ephem(base), "window_end": local_to_ephem(base + timedelta(hours=8)),
