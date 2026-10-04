@@ -23,7 +23,7 @@ LATITUDE = float(os.environ.get("LATITUDE") or "28.2336")
 LONGITUDE = float(os.environ.get("LONGITUDE") or "-82.1812")
 
 # Timezone - Find yours at: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-TIMEZONE = "America/New_York"
+TIMEZONE = os.environ.get("TIMEZONE") or "America/New_York"
 
 # Location name (optional, just for display)
 LOCATION_NAME = "Zephyrhills, FL"

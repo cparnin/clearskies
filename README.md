@@ -36,7 +36,7 @@ python main.py --dry-run   # prints the notification without sending it
 python main.py             # the real thing
 ```
 
-For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TOPIC` as repository secrets (plus `NTFY_SERVER` / `NTFY_TOKEN` if you self-host ntfy).
+For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TOPIC` as repository secrets (plus `NTFY_SERVER` / `NTFY_TOKEN` if you self-host ntfy). `TIMEZONE`, `HORIZON_MASK`, and `MIN_ALTITUDE` can be set as repository variables. Unset values fall back to the defaults in `config.py` — including the author's location and ntfy topic, so set your own.
 
 ---
 

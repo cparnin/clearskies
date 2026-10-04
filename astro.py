@@ -70,12 +70,12 @@ def get_night(now: datetime = None) -> dict:
 
     # Prime cutoff: PRIME_END_HOUR is hours after the start of the evening's
     # calendar day (24 = midnight, 23 = 11 PM, 25 = 1 AM).
+    # Anchored to the evening's date, so where darkness starts after midnight
+    # (high-latitude summers) a passed cutoff clamps to the window start
+    # instead of rolling a day forward.
     start_local = ephem_to_local(window_start)
-    day_start = start_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    prime_local = day_start + timedelta(hours=PRIME_END_HOUR)
-    if prime_local < start_local:
-        prime_local += timedelta(days=1)
-    prime_end = min(ephem.Date(prime_local.astimezone(pytz.UTC)), window_end)
+    prime_local = LOCAL_TZ.localize(datetime.combine(today, time(0))) + timedelta(hours=PRIME_END_HOUR)
+    prime_end = ephem.Date(min(max(local_to_ephem(prime_local), window_start), window_end))
 
     return {
         "sunset": sunset,

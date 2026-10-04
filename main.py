@@ -195,6 +195,10 @@ def run(dry_run: bool = False) -> bool:
     """Main entry point. Returns False on a failure worth flagging in CI
     (deciding not to notify is a success)."""
     night = get_night()
+    if night["window_end"] <= night["window_start"]:
+        # Midsummer at high latitudes: the sky never gets dark enough
+        print("No usable darkness tonight. No notification sent.")
+        return True
 
     weather = get_weather(night)
     if not weather:
