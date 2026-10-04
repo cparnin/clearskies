@@ -191,14 +191,15 @@ def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dic
     return "\n".join(lines)
 
 
-def run(dry_run: bool = False):
-    """Main entry point."""
+def run(dry_run: bool = False) -> bool:
+    """Main entry point. Returns False on a failure worth flagging in CI
+    (deciding not to notify is a success)."""
     night = get_night()
 
     weather = get_weather(night)
     if not weather:
         print("Failed to fetch weather")
-        return
+        return False
 
     moon = get_moon_info(night)
 
@@ -214,12 +215,12 @@ def run(dry_run: bool = False):
     if conditions_score < MIN_CONDITIONS_SCORE:
         print(f"Conditions poor ({conditions_score}/10): {conditions_summary}")
         print("No notification sent.")
-        return
+        return True
 
     if not top:
         print(f"No targets scoring {MIN_TARGET_SCORE}+ tonight.")
         print("No notification sent.")
-        return
+        return True
 
     quality = ("Excellent" if conditions_score >= 9 else
                "Great" if conditions_score >= 8 else
@@ -234,13 +235,14 @@ def run(dry_run: bool = False):
 
     if dry_run:
         print("(dry run - notification not sent)")
-        return
+        return True
 
     if send_notification(title, message, priority):
         print("Notification sent!")
-    else:
-        print("Notification failed!")
+        return True
+    print("Notification failed!")
+    return False
 
 
 if __name__ == "__main__":
-    run(dry_run="--dry-run" in sys.argv)
+    sys.exit(0 if run(dry_run="--dry-run" in sys.argv) else 1)

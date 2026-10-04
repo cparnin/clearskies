@@ -1,7 +1,7 @@
 """Shared astronomy helpers: observer setup and tonight's dark window."""
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import ephem
 import pytz
@@ -38,19 +38,24 @@ def local_to_ephem(dt: datetime) -> ephem.Date:
     return ephem.Date(dt.astimezone(pytz.UTC))
 
 
-def get_night() -> dict:
-    """Compute tonight's observing window.
+def get_night(now: datetime = None) -> dict:
+    """Compute tonight's observing window (the evening of `now`'s local date).
 
     The window runs from astronomical darkness (sun 18° below the horizon)
     to astronomical dawn, so late-night targets are always considered — the
     DWARF3 can run unattended all night. `prime_end` marks the
     before-midnight cutoff: targets peaking earlier get a scoring bonus.
     """
-    obs = make_observer()
+    # Anchor to local noon so "tonight" doesn't shift to tomorrow when the
+    # run starts late (GitHub's scheduler often lags the cron by hours)
+    today = (now or datetime.now(timezone.utc)).astimezone(LOCAL_TZ).date()
+    anchor = local_to_ephem(LOCAL_TZ.localize(datetime.combine(today, time(12))))
+
+    obs = make_observer(anchor)
     sun = ephem.Sun()
     sunset = obs.next_setting(sun)
 
-    dark = make_observer()
+    dark = make_observer(anchor)
     dark.horizon = "-18"  # astronomical twilight
     try:
         window_start = dark.next_setting(sun, use_center=True)

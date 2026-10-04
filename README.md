@@ -4,7 +4,7 @@ Push notifications for optimal astrophotography conditions with DWARF3.
 
 ## Setup
 
-**1. Install dependencies**
+**1. Install dependencies** (Python 3.10+)
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -42,7 +42,7 @@ For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TO
 
 ## How It Works
 
-Runs daily at 4/5 PM ET (GitHub Actions), evaluates:
+Runs daily in the late afternoon ET (GitHub Actions; a late-starting run still plans that evening), evaluates:
 - Weather hour-by-hour across the whole night (finds the best clear stretch, not just an evening snapshot)
 - Moon phase and position, checked at each target's own peak time
 - 89 deep sky targets scored on their peak altitude between astronomical darkness

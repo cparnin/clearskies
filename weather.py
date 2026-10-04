@@ -26,6 +26,7 @@ def get_weather(night: dict = None) -> dict | None:
         "wind_speed_unit": "mph",
         "timezone": TIMEZONE,
         "forecast_days": 2,
+        "timeformat": "unixtime",  # local ISO strings are ambiguous across DST changes
     }
 
     try:
@@ -42,8 +43,7 @@ def get_weather(night: dict = None) -> dict | None:
 
     samples = []
     for i, ts in enumerate(hourly["time"]):
-        # Open-Meteo returns naive local ISO timestamps when timezone is set
-        t = LOCAL_TZ.localize(datetime.fromisoformat(ts))
+        t = datetime.fromtimestamp(ts, LOCAL_TZ)
         if window_start <= t <= window_end:
             samples.append({
                 "time": t,

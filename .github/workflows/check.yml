@@ -2,19 +2,22 @@ name: ClearSkies Check
 
 on:
   schedule:
-    # 4pm EST (21:00 UTC winter, adjust if needed)
-    - cron: '0 21 * * *'
+    # 20:23 UTC = 4:23 PM EDT / 3:23 PM EST. Off the top of the hour because
+    # GitHub delays scheduled runs most at :00 (often by hours); a late start
+    # is harmless anyway since get_night() always plans the local evening.
+    - cron: '23 20 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 

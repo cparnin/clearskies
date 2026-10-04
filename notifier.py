@@ -33,7 +33,10 @@ def send_notification(title: str, message: str, priority: str = "default") -> bo
             headers=headers,
             timeout=30,
         )
-        return response.status_code == 200
+        if response.status_code != 200:
+            print(f"ntfy returned {response.status_code}: {response.text[:200]}")
+            return False
+        return True
     except Exception as e:
         print(f"Notification failed: {e}")
         return False

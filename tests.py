@@ -143,6 +143,13 @@ check("window is 3-14 hours", 3 < (night["window_end"] - night["window_start"]) 
 check("prime end within window", night["window_start"] <= night["prime_end"] <= night["window_end"])
 check("dark starts after sunset", night["window_start"] > night["sunset"])
 
+# Regression: GitHub's scheduler can start the run hours late. A run after
+# sunset (or after dark) must still describe the same evening, not tomorrow.
+evening = [get_night(LOCAL_TZ.localize(datetime(2026, 10, 3, h, 30))) for h in (16, 19, 21, 23)]
+check("late start keeps tonight's sunset", len({round(n["sunset"], 4) for n in evening}) == 1)
+check("late start keeps tonight's window", len({round(n["window_start"], 4) for n in evening}) == 1)
+check("window is that evening", evening[0]["start_local"].date() == datetime(2026, 10, 3).date())
+
 print("tonight's recommendations (live ephem, offline):")
 import targets as targets_mod
 saved = targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE
