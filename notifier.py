@@ -18,6 +18,9 @@ def send_notification(title: str, message: str, priority: str = "default") -> bo
     Returns:
         True if successful, False otherwise
     """
+    if not NTFY_TOPIC:
+        print("NTFY_TOPIC is not set - see README setup")
+        return False
     headers = {"Authorization": f"Bearer {NTFY_TOKEN}"} if NTFY_TOKEN else {}
     try:
         response = requests.post(

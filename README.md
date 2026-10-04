@@ -16,7 +16,7 @@ pip install -r requirements.txt
 Required changes:
 - `LATITUDE` / `LONGITUDE` - Your observing location
 - `TIMEZONE` - Your timezone (see [tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones))
-- `NTFY_TOPIC` - Your unique notification topic
+- `NTFY_TOPIC` - Your notification topic (env var / repo secret). Make it hard to guess, e.g. `clearskies-` plus random characters: anyone who knows it can read and send to it
 
 Optional:
 - `NTFY_SERVER` - Self-hosted ntfy server URL (default: `https://ntfy.sh`); set `NTFY_TOKEN` too if it requires auth
@@ -36,7 +36,7 @@ python main.py --dry-run   # prints the notification without sending it
 python main.py             # the real thing
 ```
 
-For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TOPIC` as repository secrets (plus `NTFY_SERVER` / `NTFY_TOKEN` if you self-host ntfy). `TIMEZONE`, `HORIZON_MASK`, and `MIN_ALTITUDE` can be set as repository variables. Unset values fall back to the defaults in `config.py` — including the author's location and ntfy topic, so set your own.
+For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TOPIC` as repository secrets (plus `NTFY_SERVER` / `NTFY_TOKEN` if you self-host ntfy). `TIMEZONE`, `HORIZON_MASK`, and `MIN_ALTITUDE` can be set as repository variables. Unset values fall back to the defaults in `config.py` — including the author's location, so set your own.
 
 ---
 

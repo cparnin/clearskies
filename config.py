@@ -28,9 +28,10 @@ TIMEZONE = os.environ.get("TIMEZONE") or "America/New_York"
 # Location name (optional, just for display)
 LOCATION_NAME = "Zephyrhills, FL"
 
-# Notifications via ntfy.sh - Choose ANY unique topic name
-# Then subscribe to that same topic in the ntfy app on your phone
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or "clearskies-chadp"
+# Notifications via ntfy.sh - choose a hard-to-guess topic name (anyone who
+# knows it can read and send to it), then subscribe to it in the ntfy app.
+# Set it via the NTFY_TOPIC env var / repo secret rather than committing it.
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or ""
 
 # Self-hosted ntfy: point at your own server instead of the public ntfy.sh.
 # NTFY_TOKEN is only needed if your server requires auth (an access token
