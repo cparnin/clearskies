@@ -32,6 +32,12 @@ LOCATION_NAME = "Zephyrhills, FL"
 # Then subscribe to that same topic in the ntfy app on your phone
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC") or "clearskies-chadp"
 
+# Self-hosted ntfy: point at your own server instead of the public ntfy.sh.
+# NTFY_TOKEN is only needed if your server requires auth (an access token
+# like "tk_..."); keep it in an env var or repo secret, not in this file.
+NTFY_SERVER = (os.environ.get("NTFY_SERVER") or "https://ntfy.sh").rstrip("/")
+NTFY_TOKEN = os.environ.get("NTFY_TOKEN") or ""
+
 # ============================================================================
 # OPTIONAL: Customize these if desired (sensible defaults below)
 # ============================================================================

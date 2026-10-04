@@ -19,6 +19,7 @@ Required changes:
 - `NTFY_TOPIC` - Your unique notification topic
 
 Optional:
+- `NTFY_SERVER` - Self-hosted ntfy server URL (default: `https://ntfy.sh`); set `NTFY_TOKEN` too if it requires auth
 - `HORIZON_MASK` - Azimuth wedges your local horizon blocks (trees, buildings); see [Customization](#customization)
 - `MIN_ALTITUDE` - Drop targets peaking below this altitude (default: 30°)
 - `PRIME_END_HOUR` - Attended-imaging cutoff for the prime-time bonus (default: 23 = 11 PM)
@@ -35,7 +36,7 @@ python main.py --dry-run   # prints the notification without sending it
 python main.py             # the real thing
 ```
 
-For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TOPIC` as repository secrets.
+For automated runs via GitHub Actions, set `LATITUDE`, `LONGITUDE`, and `NTFY_TOPIC` as repository secrets (plus `NTFY_SERVER` / `NTFY_TOKEN` if you self-host ntfy).
 
 ---
 
@@ -139,6 +140,7 @@ floor applied everywhere, masked or not.
 **No notifications?**
 - Run `python main.py --dry-run` locally to see the scores and decision
 - Confirm ntfy topic matches between `config.py` and phone app
+- Self-hosting? Make sure the app is subscribed on your server, not ntfy.sh, and that `NTFY_TOKEN` is set if the server requires auth
 
 **Wrong targets?**
 - Check `LATITUDE`/`LONGITUDE` are correct
