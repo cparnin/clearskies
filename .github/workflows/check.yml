@@ -34,6 +34,8 @@ jobs:
           TIMEZONE: ${{ vars.TIMEZONE }}
           HORIZON_MASK: ${{ vars.HORIZON_MASK }}
           MIN_ALTITUDE: ${{ vars.MIN_ALTITUDE }}
+          TARGET_TYPES: ${{ vars.TARGET_TYPES }}
+          SN_MAX_MAG: ${{ vars.SN_MAX_MAG }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}

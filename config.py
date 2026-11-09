@@ -52,21 +52,35 @@ NTFY_TOKEN = os.environ.get("NTFY_TOKEN") or ""
 PRIME_END_HOUR = 23           # 23 = 11 PM, 24 = midnight, 25 = 1 AM
 LATE_PENALTY_PER_HOUR = 0.15  # score decay per hour a peak lands past prime
 
-# Object type preference (points out of 10):
+# Object types to consider at all - anything else never shows up. Choose from
+# galaxy, cluster, nebula. Env override: TARGET_TYPES="galaxy,cluster".
+# Default: galaxies only - still a full top 3 on nearly every night that
+# notifies, though summer picks mostly land after the prime cutoff.
+TARGET_TYPES = {t.strip() for t in (os.environ.get("TARGET_TYPES") or "galaxy").split(",") if t.strip()}
+
+# Object type preference (points out of 10) among TARGET_TYPES:
 # galaxies strongly favored, ordinary nebulae a full point behind, clusters
 # mostly ignored. Showpiece nebulae (SHOWPIECES in targets.py) are exempt -
 # they score at full galaxy weight so the icons still make the list.
 TYPE_WEIGHTS = {"galaxy": 1.5, "nebula": 0.5, "cluster": 0.2}
 
-# Local horizon: targets peaking below MIN_ALTITUDE, or inside a HORIZON_MASK
-# wedge and under that wedge's minimum altitude, are dropped entirely — a
-# blocked target is not a weak target, it just can't be shot from this yard.
+# Local horizon: sky below MIN_ALTITUDE, or inside a HORIZON_MASK wedge and
+# under that wedge's minimum altitude, can't be shot from this yard. Each
+# target is scored at its highest point in the sky you CAN see tonight; one
+# that never enters it is dropped entirely, not penalized.
 # HORIZON_MASK is a list of (az_start, az_end, min_alt_deg) wedges; azimuth
 # ranges may wrap through north, e.g. (340, 20, 35). Set to [] for a clear
 # 360° horizon. Env override format: "250-340:90,340-20:35".
-# Defaults: the house blocks the WNW-NW sky at this site.
+# Defaults: only the eastern half of the sky (north through east to south,
+# horizon to zenith) is usable at this site; the whole west is blocked.
 MIN_ALTITUDE = float(os.environ.get("MIN_ALTITUDE") or "30")
-HORIZON_MASK = _parse_horizon_mask(os.environ.get("HORIZON_MASK") or "250-340:90")
+HORIZON_MASK = _parse_horizon_mask(os.environ.get("HORIZON_MASK") or "180-360:90")
+
+# Exploding stars: bright supernovae and Andromeda novae in your visible sky
+# get their own notification lines (data: rochesterastronomy.org). SN_MAX_MAG
+# is the faintest worth chasing - they sit on their host galaxy's glow, so
+# keep it well inside the DWARF3's reach. 0 turns these alerts off.
+SN_MAX_MAG = float(os.environ.get("SN_MAX_MAG") or "15")
 
 # Scoring thresholds - adjust to be more or less picky
 MIN_TARGET_SCORE = 6      # Only show targets scoring 6+ out of 10

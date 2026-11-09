@@ -5,11 +5,12 @@ import ephem
 from astro import fmt_time, get_night, make_observer, to_deg
 from config import (
     DWARF3_OPTIMAL_TARGET_MAX, DWARF3_OPTIMAL_TARGET_MIN, HORIZON_MASK,
-    LATE_PENALTY_PER_HOUR, MIN_ALTITUDE, MIN_TARGET_SCORE, TYPE_WEIGHTS,
+    LATE_PENALTY_PER_HOUR, MIN_ALTITUDE, MIN_TARGET_SCORE, TARGET_TYPES, TYPE_WEIGHTS,
 )
 
 PRIME_BONUS = 0.5  # points available for peaking before the prime cutoff
 PRIME_USABLE_FRACTION = 0.8  # at the cutoff, this fraction of peak altitude counts as "already there"
+SAMPLE_MINUTES = 10  # resolution of each target's track across the night
 
 # DWARF3-optimized catalog (telephoto ~3° x 1.65° FOV)
 # Organized by season (when best visible in evening)
@@ -65,7 +66,7 @@ DSO_CATALOG = [
     ("M65/M66 - Leo Triplet", "11:18:56", "13:05:32", "galaxy", "medium", 0.7),
     ("NGC 2903", "9:32:10", "21:30:03", "galaxy", "medium", 0.2),
     ("NGC 4565 - Needle Galaxy", "12:36:21", "25:59:16", "galaxy", "medium", 0.3),
-    ("NGC 4631 - Whale Galaxy", "12:42:08", "32:32:29", "galaxy", "medium", 0.3),
+    ("NGC 4631 + NGC 4656 - Whale & Hockey Stick", "12:43:03", "32:21:17", "galaxy", "medium", 0.6),  # both in one frame
     ("M83 - Southern Pinwheel", "13:37:01", "-29:51:57", "galaxy", "medium", 0.2),
     ("Markarian's Chain", "12:27:00", "13:10:00", "galaxy", "medium", 1.5),
     ("NGC 5128 - Centaurus A", "13:25:28", "-43:01:09", "galaxy", "hard", 0.4),  # Low from FL but iconic
@@ -124,6 +125,28 @@ DSO_CATALOG = [
     ("Helix Nebula", "22:29:38", "-20:50:14", "nebula", "medium", 0.3),
     ("NGC 7331 + Stephan's Quintet", "22:37:04", "34:24:56", "galaxy", "hard", 0.3),
 
+    # === ODD & INTERACTING GALAXIES (coordinates from NED) ===
+    # Collisions, polar rings, warps, dust lanes, and whole galaxy clusters -
+    # also fills the summer gap in the galaxy list
+    ("NGC 4038/4039 - Antennae Galaxies", "12:01:53", "-18:52:37", "galaxy", "hard", 0.12),
+    ("NGC 4490 - Cocoon Galaxy", "12:30:36", "41:38:38", "galaxy", "medium", 0.15),
+    ("NGC 4449 - Box Galaxy", "12:28:11", "44:05:37", "galaxy", "medium", 0.1),
+    ("NGC 4567/4568 - Siamese Twins", "12:36:34", "11:14:55", "galaxy", "hard", 0.08),
+    ("NGC 3718 - Warped Galaxy", "11:32:35", "53:04:05", "galaxy", "hard", 0.14),
+    ("NGC 2685 - Helix Galaxy", "8:55:35", "58:44:04", "galaxy", "hard", 0.08),  # polar ring
+    ("Coma Galaxy Cluster", "12:59:49", "27:58:52", "galaxy", "hard", 1.0),
+    ("NGC 5907 - Splinter Galaxy", "15:15:53", "56:19:48", "galaxy", "medium", 0.21),
+    ("NGC 5866 - Spindle Galaxy", "15:06:30", "55:45:48", "galaxy", "medium", 0.11),
+    ("Draco Trio", "15:38:44", "59:21:36", "galaxy", "hard", 0.4),  # NGC 5981/5982/5985
+    ("Hercules Galaxy Cluster", "16:05:15", "17:44:35", "galaxy", "hard", 0.5),
+    ("NGC 6503 - Lost-in-Space Galaxy", "17:49:26", "70:08:40", "galaxy", "medium", 0.12),
+    ("NGC 7814 - Little Sombrero", "0:03:15", "16:08:43", "galaxy", "medium", 0.09),
+    ("NGC 660 - Polar Ring Galaxy", "1:43:02", "13:38:42", "galaxy", "hard", 0.15),
+    ("Perseus Galaxy Cluster", "3:19:49", "41:30:42", "galaxy", "hard", 0.8),
+    ("IC 342 - Hidden Galaxy", "3:46:49", "68:05:47", "galaxy", "hard", 0.35),
+    ("NGC 2146 - Dusty Hand Galaxy", "6:18:38", "78:21:25", "galaxy", "medium", 0.1),
+    ("NGC 2207 - Colliding Pair", "6:16:22", "-21:22:22", "galaxy", "hard", 0.07),
+
     # === YEAR-ROUND (globulars, always decent) ===
     ("M13 - Hercules Cluster", "16:41:41", "36:27:37", "cluster", "easy", 0.3),
     ("M92 - Hercules Globular", "17:17:07", "43:08:11", "cluster", "medium", 0.2),
@@ -151,48 +174,71 @@ SHOWPIECES = {
 }
 
 
-def _altitude_at(target: ephem.FixedBody, date) -> float:
-    target.compute(make_observer(date))
-    return to_deg(target.alt)
+def _sky_track(target: ephem.FixedBody, night: dict) -> list:
+    """(time, alt, az) samples across the window: every SAMPLE_MINUTES, plus
+    the window edges, the prime cutoff, and the exact transit when it falls
+    inside the window, so neither the true peak nor the cutoff is missed."""
+    start, end = night["window_start"], night["window_end"]
+    times = {float(start), float(end), float(night["prime_end"])}
+    step = SAMPLE_MINUTES * ephem.minute
+    t = start + step
+    while t < end:
+        times.add(float(t))
+        t += step
+    transit = make_observer(start).next_transit(target, start=start)
+    if transit <= end:
+        times.add(float(transit))
+
+    track = []
+    for t in sorted(times):
+        target.compute(make_observer(ephem.Date(t)))
+        track.append((ephem.Date(t), to_deg(target.alt), to_deg(target.az)))
+    return track
 
 
-def _best_time_in_window(obs: ephem.Observer, target: ephem.FixedBody, night: dict):
-    """Find when the target is highest within tonight's observing window."""
-    transit = obs.next_transit(target, start=night["window_start"])
-    if transit <= night["window_end"]:
-        return ephem.Date(transit)
-    # Transit falls outside the window: the target is either already setting
-    # at the start of the window or still rising at the end. Take the better edge.
-    if _altitude_at(target, night["window_start"]) >= _altitude_at(target, night["window_end"]):
-        return night["window_start"]
-    return night["window_end"]
+def best_moment(track: list, prime_end, mask=None, min_altitude=None):
+    """When to shoot: the highest point of the track the local horizon
+    doesn't block, as a (time, alt, az) sample - or None if the target never
+    clears the horizon tonight.
+
+    Scoring the visible sky, not the meridian peak, matters for a partial
+    horizon: with only the east open, a target that transits due south is
+    shot on its climb, not dropped for peaking in the blocked half.
+
+    If the best moment lands after the prime cutoff but the target is already
+    within PRIME_USABLE_FRACTION of that altitude (and unblocked) by the
+    cutoff, the highest pre-cutoff moment wins instead - the overnight tag is
+    only for targets where leaving the scope out buys real altitude.
+    """
+    usable = [s for s in track if not is_blocked(s[1], s[2], mask, min_altitude)]
+    if not usable:
+        return None
+    best = max(usable, key=lambda s: s[1])
+    if best[0] > prime_end:
+        early = [s for s in usable if s[0] <= prime_end]
+        if early:
+            by_cutoff = max(early, key=lambda s: s[1])
+            if by_cutoff[1] >= PRIME_USABLE_FRACTION * best[1]:
+                best = by_cutoff
+    return best
 
 
-def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dict:
-    """Compute a target's peak within the window and moon conditions at that time."""
+def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dict | None:
+    """Find a target's best moment in tonight's visible sky and the moon
+    conditions at that moment. None if the local horizon hides it all night."""
     target = ephem.FixedBody()
     target._ra = ephem.hours(ra)
     target._dec = ephem.degrees(dec)
 
-    obs = make_observer(night["window_start"])
-    target.compute(obs)
+    moment = best_moment(_sky_track(target, night), night["prime_end"])
+    if moment is None:
+        return None
+    best_time, altitude, azimuth = moment
 
-    best_time = _best_time_in_window(obs, target, night)
-    if best_time > night["prime_end"]:
-        # A target already near peak height (and unblocked) at the prime
-        # cutoff can be shot attended - only group it overnight if waiting
-        # up past the cutoff actually buys real altitude
-        peak_alt = _altitude_at(target, best_time)
-        target.compute(make_observer(night["prime_end"]))
-        prime_alt, prime_az = to_deg(target.alt), to_deg(target.az)
-        if _shootable_by_cutoff(prime_alt, prime_az, peak_alt):
-            best_time = night["prime_end"]
+    # Moon conditions at the target's own best time (the moon may rise or set
+    # mid-window, so a single evening snapshot would be wrong for late peaks)
     obs_best = make_observer(best_time)
     target.compute(obs_best)
-    altitude = to_deg(target.alt)
-
-    # Moon conditions at the target's own peak time (the moon may rise or set
-    # mid-window, so a single evening snapshot would be wrong for late peaks)
     moon = ephem.Moon(obs_best)
     moon_up = to_deg(moon.alt) > 0
     moon_sep = to_deg(ephem.separation(moon, target))
@@ -205,7 +251,7 @@ def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dic
         "type": obj_type,
         "difficulty": difficulty,
         "altitude": round(altitude, 1),
-        "azimuth": round(to_deg(target.az), 1),
+        "azimuth": round(azimuth, 1) % 360,
         "visible": altitude > 15,
         "peak_time": fmt_time(best_time),
         "is_late": is_late,
@@ -218,6 +264,7 @@ def evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night) -> dic
 
 
 def _in_wedge(az: float, az_start: float, az_end: float) -> bool:
+    az %= 360  # radian round-off can hand back 360.00001 for due north
     if az_start <= az_end:
         return az_start <= az <= az_end
     return az >= az_start or az <= az_end  # wedge wraps through north
@@ -232,14 +279,6 @@ def is_blocked(altitude: float, azimuth: float, mask=None, min_altitude=None) ->
         return True
     return any(_in_wedge(azimuth, az_start, az_end) and altitude < min_alt
                for az_start, az_end, min_alt in mask)
-
-
-def _shootable_by_cutoff(prime_alt: float, prime_az: float, peak_alt: float,
-                         mask=None, min_altitude=None) -> bool:
-    """True if a late-peaking target is close enough to its peak, and
-    unblocked, at the prime cutoff to count as a before-midnight target."""
-    return (prime_alt >= PRIME_USABLE_FRACTION * peak_alt
-            and not is_blocked(prime_alt, prime_az, mask, min_altitude))
 
 
 def score_target(t: dict) -> float:
@@ -314,16 +353,20 @@ def score_target(t: dict) -> float:
     return round(alt_score + moon_score + type_score + diff_score + fov_score + prime_score, 1)
 
 
-def get_recommendations(night: dict = None) -> list:
-    """Get ranked list of targets for tonight (best first)."""
+def get_recommendations(night: dict = None, types=None) -> list:
+    """Get ranked list of targets for tonight (best first), limited to
+    `types` (default: TARGET_TYPES from config)."""
     night = night or get_night()
+    types = TARGET_TYPES if types is None else types
 
     targets = []
     for name, ra, dec, obj_type, difficulty, size_deg in DSO_CATALOG:
+        if obj_type not in types:
+            continue
         t = evaluate_target(name, ra, dec, obj_type, difficulty, size_deg, night)
-        # A target the local horizon blocks at its peak isn't a weak pick,
+        # A target the local horizon hides all night isn't a weak pick,
         # it's not a pick at all — drop it before any score filtering
-        if is_blocked(t["altitude"], t["azimuth"]):
+        if t is None:
             continue
         t["score"] = score_target(t)
         targets.append(t)
@@ -350,4 +393,4 @@ if __name__ == "__main__":
         moon_note = f"moon {t['moon_separation']:.0f}° away" if t["moon_up"] else "moon down"
         late_note = " (overnight)" if t["is_late"] else ""
         print(f"{i:2}. {t['name']} [{t['score']}/10]{late_note}")
-        print(f"     {t['type']}, peak {t['peak_time']} @ {t['altitude']}°, {moon_note}")
+        print(f"     {t['type']}, best {t['peak_time']} @ {t['altitude']}° az {t['azimuth']:.0f}°, {moon_note}")

@@ -10,6 +10,7 @@ from astro import ephem_to_local, fmt_time, get_night, local_to_ephem, make_obse
 from config import MIN_CONDITIONS_SCORE, MIN_TARGET_SCORE, TOP_TARGETS_COUNT
 from moon import get_moon_info
 from notifier import send_notification
+from supernovae import get_exploding_stars
 from targets import get_recommendations
 from weather import get_weather
 
@@ -162,8 +163,16 @@ def get_priority(conditions_score: int, best_target_score: float) -> str:
     return "low"
 
 
+def supernova_line(sn: dict) -> str:
+    host = f" in {sn['host']}" if sn["host"] else ""
+    line = f"• {sn['name']}{host} ({sn['sn_type']}, mag {sn['mag']:g}) — best {sn['peak_time']}"
+    if sn["is_late"]:
+        line += " (overnight)"
+    return line
+
+
 def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dict,
-                  top: list) -> str:
+                  top: list, supernovae: list = ()) -> str:
     """Body is ntfy Markdown: bold section headers render on Android/web."""
     sky = "✨" if conditions_summary == "Excellent conditions!" else "🌤️"
     lines = [f"{sky} {conditions_summary}"]
@@ -187,6 +196,11 @@ def build_message(conditions_summary: str, night: dict, imaging: dict, moon: dic
         if t["is_late"]:
             line += " (overnight, leave it out)"
         lines.append(line)
+
+    if supernovae:
+        lines.append("")
+        lines.append("**💥 Exploding stars**")
+        lines.extend(supernova_line(sn) for sn in supernovae)
 
     return "\n".join(lines)
 
@@ -230,7 +244,9 @@ def run(dry_run: bool = False) -> bool:
                "Great" if conditions_score >= 8 else
                "Good" if conditions_score >= 7 else "Fair")
     title = f"{quality} night for imaging — {conditions_score}/10"
-    message = build_message(conditions_summary, night, imaging, moon, top)
+    # Only fetched once the night is worth a notification
+    supernovae = get_exploding_stars(imaging)
+    message = build_message(conditions_summary, night, imaging, moon, top, supernovae)
     priority = get_priority(conditions_score, top[0]["score"])
 
     print(f"=== {title} (priority: {priority}) ===")

@@ -4,8 +4,11 @@ from datetime import datetime, timedelta
 
 from astro import LOCAL_TZ, get_night, local_to_ephem
 from config import _parse_horizon_mask
-from main import assess_conditions, display_name, effective_night, find_clear_stretch
-from targets import DSO_CATALOG, SHOWPIECES, _shootable_by_cutoff, is_blocked, score_target
+from main import assess_conditions, build_message, display_name, effective_night, find_clear_stretch
+from datetime import date
+
+from supernovae import is_candidate, is_fresh_nova, parse_active_supernovae, parse_m31_novae
+from targets import DSO_CATALOG, SHOWPIECES, best_moment, is_blocked, score_target
 
 passed = 0
 
@@ -72,17 +75,34 @@ check("wraparound wedge blocks across north",
       is_blocked(30.0, 5.0, mask=[(340, 20, 35)], min_altitude=0.0)
       and is_blocked(30.0, 350.0, mask=[(340, 20, 35)], min_altitude=0.0))
 check("wraparound wedge spares the south", not is_blocked(30.0, 180.0, mask=[(340, 20, 35)], min_altitude=0.0))
+check("round-off past 360 still counts as north",
+      not is_blocked(50.0, 360.00001, mask=[(180, 360, 90)], min_altitude=0.0)
+      and is_blocked(50.0, 359.9, mask=[(180, 360, 90)], min_altitude=0.0))
 check("env mask parsing",
       _parse_horizon_mask("250-340:90,340-20:35") == [(250.0, 340.0, 90.0), (340.0, 20.0, 35.0)])
 
-print("prime cutoff:")
-check("near-peak by cutoff counts as prime",  # Veil East on 8/11: 76° at midnight, 86° peak at 1 AM
-      _shootable_by_cutoff(76.0, 12.0, 86.4, mask=[], min_altitude=30.0))
-check("still climbing stays overnight", not _shootable_by_cutoff(40.0, 90.0, 80.0, mask=[], min_altitude=30.0))
-check("blocked at cutoff stays overnight",
-      not _shootable_by_cutoff(50.0, 300.0, 55.0, mask=[(250, 340, 90)], min_altitude=30.0))
-check("below floor at cutoff stays overnight",
-      not _shootable_by_cutoff(25.0, 90.0, 28.0, mask=[], min_altitude=30.0))
+print("best moment (track = (time, alt, az) samples):")
+EAST_ONLY = [(180, 360, 90)]
+# Veil East on 8/11: 76° at the 11 PM cutoff, 86° peak around 1 AM
+pick = best_moment([(3, 70.0, 30.0), (4, 76.0, 12.0), (5, 86.4, 0.0)], 4, mask=[], min_altitude=30.0)
+check("near-peak by cutoff counts as prime", pick[0] == 4, f"got {pick}")
+pick = best_moment([(4, 40.0, 90.0), (6, 80.0, 120.0)], 4, mask=[], min_altitude=30.0)
+check("still climbing stays overnight", pick[0] == 6, f"got {pick}")
+pick = best_moment([(3, 25.0, 220.0), (4, 50.0, 300.0), (5, 55.0, 220.0)], 4,
+                   mask=[(250, 340, 90)], min_altitude=30.0)
+check("blocked at cutoff stays overnight", pick[0] == 5, f"got {pick}")
+pick = best_moment([(4, 25.0, 90.0), (5, 35.0, 100.0)], 4, mask=[], min_altitude=30.0)
+check("below floor at cutoff stays overnight", pick[0] == 5, f"got {pick}")
+south_transit = [(1, 40.0, 120.0), (2, 55.0, 150.0), (3, 59.0, 175.0), (3.2, 60.0, 180.0),
+                 (4, 55.0, 210.0), (5, 40.0, 240.0)]
+pick = best_moment(south_transit, 10, mask=EAST_ONLY, min_altitude=30.0)
+check("east-only sky shoots a south transit on its climb", pick == (3, 59.0, 175.0), f"got {pick}")
+check("clear sky shoots it at the true peak",
+      best_moment(south_transit, 10, mask=[], min_altitude=30.0)[1] == 60.0)
+check("target only in the blocked west is dropped",
+      best_moment([(1, 50.0, 250.0), (2, 40.0, 270.0)], 10, mask=EAST_ONLY, min_altitude=30.0) is None)
+check("target never above the floor is dropped",
+      best_moment([(1, 20.0, 90.0), (2, 25.0, 100.0)], 10, mask=[], min_altitude=30.0) is None)
 
 print("display names:")
 check("catalog prefix dropped", display_name("M8 - Lagoon Nebula") == "Lagoon Nebula")
@@ -90,6 +110,81 @@ check("NGC prefix dropped", display_name("NGC 2174 - Monkey Head") == "Monkey He
 check("descriptive suffix kept", display_name("Veil Nebula - East") == "Veil Nebula - East")
 check("bare designations kept", display_name("M77 + NGC 1055") == "M77 + NGC 1055")
 check("plain name unchanged", display_name("Iris Nebula") == "Iris Nebula")
+
+print("supernovae (synthetic page in the real format):")
+SN_PAGE = """<a id="News"></a>
+<b>All active supernova over mag 17.0</b>
+<table>
+<tr><th>Name</th><th>Mag</th><th>Type</th><th>Host</th></tr>
+<tr><td><a href="#2026tst" target="_self">2026tst</a></td><td>13.3</td><td>Ia-CSM</td><td><a href="http://www.wikisky.org/?ra=22.618227&de=34.409824&zoom=10&show_box=1&box_width=50">NGC 7331</a></td></tr>
+<tr><td><a href="#2026old" target="_self">2026old</a></td><td>14.1*</td><td>II</td><td><a href="http://www.wikisky.org/?ra=13.395941&de=31.564491&zoom=10&show_box=1&box_width=50">NGC 5127</a></td></tr>
+<tr><td><a href="#2026unk" target="_self">AT2026unk</a></td><td>12.9</td><td>unk</td><td><a href="http://www.wikisky.org/?ra=13.430447&de=-5.678900&zoom=10&show_box=1&box_width=50">none</a></td></tr>
+<tr><td><a href="#2026dim" target="_self">2026dim</a></td><td>16.9</td><td>IIn</td><td><a href="http://www.wikisky.org/?ra=9.093177&de=-15.886727&zoom=10&show_box=1&box_width=50">anonymous</a></td></tr>
+</table>
+<table><tr><td>2026zzz</td><td>9.0</td><td>Ia</td><td><a href="?ra=1&de=1">elsewhere</a></td></tr></table>"""
+sne = parse_active_supernovae(SN_PAGE)
+check("parses only the summary table's data rows", [x["name"] for x in sne] ==
+      ["SN 2026tst", "SN 2026old", "AT2026unk", "SN 2026dim"], f"got {[x['name'] for x in sne]}")
+check("host coordinates and magnitude parsed",
+      (sne[0]["ra"], sne[0]["dec"], sne[0]["mag"], sne[0]["host"]) == (22.618227, 34.409824, 13.3, "NGC 7331"))
+check("starred magnitude is stale", sne[1]["stale"] and sne[1]["mag"] == 14.1 and not sne[0]["stale"])
+check("no named host becomes None", sne[2]["host"] is None and sne[3]["host"] is None)
+check("bright classified fresh supernova is a candidate", is_candidate(sne[0], max_mag=15))
+check("stale observation is not", not is_candidate(sne[1], max_mag=15))
+check("unclassified transient is not", not is_candidate(sne[2], max_mag=15))
+check("too faint is not, until the limit allows it",
+      not is_candidate(sne[3], max_mag=15) and is_candidate(sne[3], max_mag=17))
+check("page without the table yields nothing", parse_active_supernovae("<html>moved</html>") == [])
+
+msg_night = {"window_start": 0, "window_end": 1}
+msg_moon = {"phase_pct": 2.0, "phase_name": "New Moon", "is_up": False, "rising": None, "setting": None}
+sn_pick = {"name": "SN 2026tst", "host": "NGC 7331", "sn_type": "Ia-CSM", "mag": 13.3,
+           "peak_time": "7:30 PM", "is_late": False}
+gal_pick = {"name": "M31 - Andromeda Galaxy", "peak_time": "9 PM", "is_late": False}
+msg = build_message("Excellent conditions!", msg_night, msg_night, msg_moon, [gal_pick], [sn_pick])
+check("notification gets a supernova line",
+      "**💥 Exploding stars**" in msg and "• SN 2026tst in NGC 7331 (Ia-CSM, mag 13.3) — best 7:30 PM" in msg, msg)
+msg = build_message("Excellent conditions!", msg_night, msg_night, msg_moon, [gal_pick],
+                    [dict(sn_pick, host=None, is_late=True)])
+check("hostless overnight supernova line", "• SN 2026tst (Ia-CSM, mag 13.3) — best 7:30 PM (overnight)" in msg, msg)
+check("no exploding-star section when there are none",
+      "Exploding" not in build_message("Excellent conditions!", msg_night, msg_night, msg_moon, [gal_pick]))
+
+print("andromeda novae (synthetic page in the real format):")
+NOVA_PAGE = """<a id="Latest"></a>
+<td valign="top"><font face="Arial" size="2">
+<a id="2026tsa">AT2026tsa</a>
+(= <a id="NM312611a">Nova M31 2026-11a</a>) (= PNV J00433836+4115324),
+<a href="https://www.wis-tns.org/object/2026tsa">TNS</a>
+discovered 2026/11/05.079 by
+Someone et al.
+<br />Found in <a href="https://ned.ipac.caltech.edu/byname?
+objname=M31&img_stamp=YES">M31</a>
+at <a href="http://www.wikisky.org/?ra=0.727322&de=41.258999"
+>R.A. = 00h43m38s.520, Decl. = +41&deg;16'13".50</a>
+<br />Mag 14.6:11/7, Type unknown (zhost=-0.001004)
+</font></td>
+<td><a id="2026tsb">AT2026tsb</a> (= M31N 2026-10b), discovered 2026/10/01.100 by ZTF
+<br />Found in <a href="x">M31</a> at R.A. = 00h42m20s.480
+<br />Mag 14.2:10/2, Type EGN</td>
+<td><a id="2026tsc">AT2026tsc</a> (= ASASSN-26fv) discovered 2026/11/06.160
+at R.A. = 05h37m54s.415, Decl. = -69&deg;54'54".00 Mag 12.4:11/8, Type unknown (host LMC)</td>
+<td><a id="2025tsd">AT2025tsd</a> discovered 2025/12/28.100 by XOSS
+<br />Found in <a href="x">M31</a> at R.A. = 00h43m30s.830
+<br />Mag 18.1:1/3, Type unknown</td>"""
+novae = parse_m31_novae(NOVA_PAGE)
+check("only M31 entries, named by designation or TNS name",
+      [n["name"] for n in novae] == ["M31N 2026-11a", "M31N 2026-10b", "AT2025tsd"], f"got {novae}")
+check("latest magnitude and its date parsed",
+      (novae[0]["mag"], novae[0]["observed"]) == (14.6, date(2026, 11, 7)))
+check("observation after new year rolls the year", novae[2]["observed"] == date(2026, 1, 3))
+today = date(2026, 11, 9)
+check("bright nova seen 2 days ago is fresh", is_fresh_nova(novae[0], today, max_mag=15))
+check("nova seen 5 weeks ago is stale", not is_fresh_nova(novae[1], today, max_mag=15))
+check("faint nova is not", not is_fresh_nova(dict(novae[0], mag=16.2), today, max_mag=15))
+msg = build_message("Excellent conditions!", msg_night, msg_night, msg_moon, [gal_pick],
+                    [dict(sn_pick, name="M31N 2026-11a", host="Andromeda", sn_type="nova", mag=14.6)])
+check("nova line names Andromeda", "• M31N 2026-11a in Andromeda (nova, mag 14.6) — best 7:30 PM" in msg, msg)
 
 print("clear stretch:")
 check("finds the clear run", [h["cloud_cover"] for h in find_clear_stretch(fake_hours([90, 10, 5, 10, 95]))] == [10, 5, 10])
@@ -152,16 +247,35 @@ check("window is that evening", evening[0]["start_local"].date() == datetime(202
 
 print("tonight's recommendations (live ephem, offline):")
 import targets as targets_mod
+ALL_TYPES = {"galaxy", "cluster", "nebula"}
 saved = targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE
 try:
     targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE = [], -90.0
-    unmasked = targets_mod.get_recommendations(night)
+    unmasked = targets_mod.get_recommendations(night, types=ALL_TYPES)
     check("no mask keeps the whole catalog", len(unmasked) == len(DSO_CATALOG))
+    check("type filter keeps only those types",
+          {t["type"] for t in targets_mod.get_recommendations(night, types={"galaxy"})} == {"galaxy"})
+    check("no-nebula filter drops every nebula",
+          all(t["type"] != "nebula" for t in targets_mod.get_recommendations(night, types={"galaxy", "cluster"})))
+
+    # Regression: on 11/9 NGC 253 transits due south at ~10 PM. An east-only
+    # sky must still recommend it on its climb, not drop it for peaking at 180°.
+    targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE = EAST_ONLY, 30.0
+    nov9 = get_night(LOCAL_TZ.localize(datetime(2026, 11, 9, 16, 0)))
+    east = {t["name"]: t for t in targets_mod.get_recommendations(nov9, types=ALL_TYPES)}
+    sculptor = east.get("NGC 253 - Sculptor Galaxy")
+    check("east-only sky keeps a south-transiting galaxy",
+          sculptor is not None and sculptor["azimuth"] < 180 and sculptor["altitude"] > 35, f"got {sculptor}")
+    check("east-only sky keeps nothing in the west", all(t["azimuth"] < 180 for t in east.values()))
+    sn = targets_mod.evaluate_target("SN 2026tst", "22.618227", "34.409824", "supernova", "hard", None, nov9)
+    check("supernova at NGC 7331 is up in the east on 11/9", sn is not None and sn["azimuth"] < 180, f"got {sn}")
 finally:
     targets_mod.HORIZON_MASK, targets_mod.MIN_ALTITUDE = saved
-masked = targets_mod.get_recommendations(night)
+masked = targets_mod.get_recommendations(night, types=ALL_TYPES)
 check("mask only ever removes targets", len(masked) <= len(unmasked))
-check("no blocked peak survives the mask",
+check("no blocked best moment survives the mask",
       all(not is_blocked(t["altitude"], t["azimuth"]) for t in masked))
+check("default run honors TARGET_TYPES",
+      all(t["type"] in targets_mod.TARGET_TYPES for t in targets_mod.get_recommendations(night)))
 
 print(f"\n{passed} checks passed")
